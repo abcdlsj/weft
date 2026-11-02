@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +24,9 @@ usage:
 run "weft serve -h" or "weft agent -h" for flags.`
 
 func main() {
+	// the panel ships a web manifest; Go's mime table does not know the type
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
+
 	if len(os.Args) < 2 {
 		fmt.Println(usage)
 		os.Exit(1)
