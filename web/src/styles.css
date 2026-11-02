@@ -536,27 +536,8 @@ a {
   display: flex;
   flex-direction: column;
 }
-.grid--overview .chart {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-.grid--overview .chart svg {
-  flex: 1;
-  height: auto;
-  min-height: 148px;
-}
 .grid--overview .hostlist {
   margin-bottom: 4px;
-}
-/* the code surface takes the card's leftover height so the two cards close together */
-.grid--overview .panel--connect .code {
-  flex: 1;
-  margin-bottom: 0;
-}
-.panel--connect .btn--connect {
-  margin-top: 14px;
-  align-self: flex-start;
 }
 .panel__foot {
   margin-top: auto;
@@ -865,17 +846,17 @@ a {
 
 /* ---------- host list ---------- */
 .hostlist li + li .hostlist__row {
-  padding-top: 14px;
+  padding-top: 12px;
 }
 .hostlist__row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-areas:
-    'name pill'
-    'meta pill';
-  gap: 2px 12px;
+    'name threads pill'
+    'meta threads pill';
+  gap: 2px 16px;
   width: 100%;
-  padding: 10px 0;
+  padding: 12px 0;
   border: 0;
   background: none;
   text-align: left;
@@ -1735,6 +1716,287 @@ textarea::placeholder {
   }
   .segmented button {
     flex: 1;
+  }
+}
+
+/* ---------- node threads: one cell per node ---------- */
+.threads {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  vertical-align: middle;
+}
+.threads__cell {
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.threads__cell--down {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--negative);
+}
+.hostlist__threads {
+  grid-area: threads;
+  align-self: center;
+}
+.hostlist__threads .threads {
+  display: grid;
+  grid-template-columns: repeat(6, 6px);
+  gap: 3px;
+}
+.hostlist__threads .threads__cell {
+  width: 6px;
+  height: 10px;
+}
+.hostlist {
+  display: flex;
+  flex-direction: column;
+}
+.hostlist li + li .hostlist__row {
+  border-top: 1px solid var(--rule);
+}
+
+/* ---------- trend panel ---------- */
+.trend > header {
+  align-items: flex-start;
+}
+.trend__now {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.trend__value {
+  font-size: 30px;
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.trend__unit {
+  color: var(--faint);
+  font-size: 14px;
+  margin-right: 6px;
+}
+.trend__delta {
+  font-size: 13px;
+  font-weight: 500;
+}
+.trend__window {
+  color: var(--faint);
+  font-size: 13px;
+}
+.is-good {
+  color: var(--positive);
+}
+.is-bad {
+  color: var(--negative);
+}
+.chart {
+  position: relative;
+}
+.trend {
+  display: flex;
+  flex-direction: column;
+}
+.trend .chart {
+  margin-top: auto;
+}
+.trend .chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.chart__tick {
+  fill: var(--faint);
+  font-size: 11px;
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.chart__area {
+  fill: var(--accent);
+  opacity: 0.08;
+}
+.chart__ref {
+  stroke: var(--faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.chart__cursor {
+  stroke: var(--control);
+  stroke-width: 1;
+}
+.chart__tip {
+  position: absolute;
+  top: 6px;
+  display: flex;
+  gap: 8px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.12);
+}
+.chart__tip span {
+  opacity: 0.7;
+}
+
+/* ---------- delay distribution ---------- */
+.dist__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.dist__stats dt {
+  font-size: 12px;
+  color: var(--faint);
+}
+.dist__stats dd {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.dist__stats dd span {
+  margin-left: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--faint);
+}
+.dist {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 168px;
+  border-bottom: 1px solid var(--border);
+}
+.dist__col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 4px;
+}
+.dist__count {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.dist__bar {
+  min-height: 0;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--accent) 38%, var(--surface));
+  transition: background 0.15s var(--ease);
+}
+.dist__bar--fast {
+  background: var(--accent);
+}
+.dist__col:hover .dist__bar {
+  background: var(--text);
+}
+.dist__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--faint);
+}
+.dist__axis span {
+  flex: 1;
+  text-align: left;
+  transform: translateX(-2px);
+}
+.dist__axis span:last-child {
+  flex: 0;
+}
+
+/* ---------- connect strip ---------- */
+.connect-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding-block: 14px;
+}
+.connect-strip h2 {
+  white-space: nowrap;
+}
+.connect-strip__cmd {
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--raised);
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connect-strip__actions {
+  display: flex;
+  gap: 6px;
+}
+@media (max-width: 899px) {
+  .connect-strip {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .dist__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .trend > header {
+    flex-direction: column;
+  }
+  .table--hosts tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'name status'
+      'threads threads'
+      'alive alive';
+    gap: 8px 12px;
+  }
+  .table--hosts td:nth-child(1) {
+    grid-area: name;
+    margin: 0;
+  }
+  .table--hosts td:nth-child(2) {
+    grid-area: status;
+  }
+  .table--hosts td:nth-child(3) {
+    grid-area: threads;
+  }
+  .table--hosts td:nth-child(2)::before,
+  .table--hosts td:nth-child(3)::before {
+    display: none;
+  }
+  .table--hosts td:nth-child(4),
+  .table--hosts td:nth-child(5),
+  .table--hosts td:nth-child(6) {
+    display: none;
+  }
+  .table--hosts tbody tr::after {
+    content: attr(data-summary);
+    grid-area: alive;
+    font-size: 13px;
+    color: var(--faint);
+  }
+  .table--subs th:nth-child(2),
+  .table--subs td:nth-child(2) {
+    display: none;
+  }
+  .table--subs td:nth-child(4),
+  .table--subs th:nth-child(4) {
+    width: 84px;
+    padding-left: 8px;
   }
 }
 

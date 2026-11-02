@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ago, api, type Host } from '../api'
 import { Icon } from '../icons'
 import { Copy, Drawer, Empty, Modal, StatusPill, notify } from '../ui'
+import { NodeThreads } from '../weave'
 import type { PageProps } from '../App'
 
 function agentCommand(base: string, token: string) {
@@ -85,12 +86,13 @@ export function Hosts({ state, refresh }: PageProps) {
             }
           />
         ) : (
-          <table className="table table--click">
+          <table className="table table--click table--hosts">
             <thead>
               <tr>
                 <th>机器</th>
                 <th>状态</th>
-                <th className="num">节点</th>
+                <th>节点</th>
+                <th className="num">可用</th>
                 <th className="num">平均延迟</th>
                 <th>最后上报</th>
                 <th aria-label="操作" />
@@ -98,7 +100,8 @@ export function Hosts({ state, refresh }: PageProps) {
             </thead>
             <tbody>
               {state.hosts.map((h) => {
-                const nodes = state.nodes.filter((n) => n.hostId === h.id && n.alive)
+                const all = state.nodes.filter((n) => n.hostId === h.id)
+                const nodes = all.filter((n) => n.alive)
                 const avg = nodes.length
                   ? Math.round(nodes.reduce((a, n) => a + n.delayMs, 0) / nodes.length)
                   : 0
@@ -108,6 +111,7 @@ export function Hosts({ state, refresh }: PageProps) {
                     tabIndex={0}
                     role="button"
                     aria-label={`查看 ${h.name} 的详情`}
+                    data-summary={`${h.aliveCount}/${h.nodeCount} 可用 · ${avg ? `${avg} ms` : '—'} · ${h.lastSeen ? ago(h.lastSeen) : '从未上报'}`}
                     onClick={() => {
                       setSelectedID(h.id)
                       setFreshToken(null)
@@ -127,7 +131,10 @@ export function Hosts({ state, refresh }: PageProps) {
                     <td data-label="状态">
                       <StatusPill status={h.status} />
                     </td>
-                    <td className="num" data-label="节点">
+                    <td data-label="节点" className="cell-threads">
+                      <NodeThreads nodes={all} />
+                    </td>
+                    <td className="num" data-label="可用">
                       <span>
                         {h.aliveCount}
                         <span className="muted"> / {h.nodeCount}</span>
