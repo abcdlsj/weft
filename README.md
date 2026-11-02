@@ -22,18 +22,27 @@ Running mihomo on several machines usually means several subscription URLs, drif
 - **Panel** — live host status and latency, node picker, bundle editor, subscription management. Mobile first, installable as a PWA, tuned for Safari.
 - **Demo mode** — `weft serve --demo` runs a fully populated instance with no agents.
 
+![Overview](docs/screenshots/overview-light.jpg)
+
+| Bundles | Phone |
+| --- | --- |
+| ![Bundles](docs/screenshots/bundles-light.jpg) | <img src="docs/screenshots/overview-phone.jpg" width="320" alt="Phone overview"> |
+
 ## Quick start
 
 ```bash
-# server + panel
-weft serve --listen :8787 --demo
+# server + panel, seeded with a demo fleet (panel password: weft-demo)
+go run ./cmd/weft serve --demo --listen :8787
+
+# or build the binary with the panel embedded
+make build && ./weft serve --listen :8787 --password '<your password>'
 
 # on each host with mihomo running
 weft agent --server https://weft.example.com --token <agent-token> \
   --controller http://127.0.0.1:9090 --secret <mihomo-secret>
 ```
 
-Open http://127.0.0.1:8787 and finish the setup wizard.
+Open http://127.0.0.1:8787 and finish the setup wizard. The agent token is shown once, when you add the host.
 
 ## Status
 

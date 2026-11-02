@@ -69,10 +69,10 @@
 
 细节：
 
-- `Subscription` 可绑定 UA 规则；可设置 `hidden` 节点（不进订阅、仅在面板可见）。
+- 节点名统一加机器前缀（`host/节点`），同名不同机不会冲突；前缀也是排障时的第一线索。
 - 每次命中写 `last_used_at` 与 UA，面板展示「最近访问」。超出 30 条只保留聚合统计。
 - token 为 32 字节随机，可吊销、可轮换。
-- 分组策略 `group_by`: `host`（按机器分组）、`type`（按协议）、`flat`（全部一个组），配 `auto`/`select` 两种组行为。
+- 分组策略 `group_by`: `host`（按机器分组）、`type`（按协议）、`flat`（不分组），组行为取 `url-test` / `select` / `fallback` / `load-balance`。模板里的 `PROXY` 组填入分组入口，`AUTO` 组填入全部节点；模板缺少的分组由 weft 追加，模板其余段落与键顺序原样保留。
 - 健康检查：`proxy-groups` 里注入 `url-test` 组按 `delay` 排序，数据来自 agent 最近一次延迟测试。
 
 ## 6. 面板
@@ -95,15 +95,16 @@
 | 服务端 | Go 单二进制 | 与 mihomo 生态一致，交叉编译简单，静态资源可 embed |
 | 存储 | SQLite（`modernc.org/sqlite`，纯 Go） | 单机零依赖；节点表整体覆盖写，量小 |
 | 前端 | React + TS + Tailwind + vite-plugin-pwa | 生态成熟，PWA/Safari 支持好 |
-| 认证 | 面板口令 + HttpOnly session cookie；agent 独立 Bearer token | 简单、够用 |
+| 认证 | 面板口令（PBKDF2-SHA256）+ HttpOnly session cookie；agent 独立 Bearer token | 简单、够用 |
 
 ## 8. 里程碑
 
-1. **M1（当前）** — server + agent 骨架、上报与订阅出口、面板三页、demo 模式。
-2. M2 — 规则模板编辑、节点批量过滤与搜索、延迟测试触发。
+1. **M1（已完成）** — server + agent、上报与订阅出口、面板五页、规则模板、demo 模式、PWA。
+2. M2 — 面板触发延迟测试、节点按机器批量重命名、订阅访问统计图表。
 3. M3 — 订阅访问统计图表、多用户、通知 webhook。
 
 ## 9. 开放问题
 
-- 端口/服务发现：是否需要 agent 反向隧道以支持「面板直连 mihomo API」（如切换策略组）。
-- 订阅按流量/设备限流是否需要。
+- 是否需要 agent 反向隧道，让面板直接调用各机 mihomo API（切换策略组、触发测速）。
+- 订阅是否要按设备限速或限 UA。
+- 多用户与只读账号是否需要（当前是单口令）。
