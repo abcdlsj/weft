@@ -456,7 +456,7 @@ type Subscription struct {
 	LastUsedAt int64        `json:"lastUsedAt"`
 	LastUA     string       `json:"lastUa"`
 	CreatedAt  int64        `json:"createdAt"`
-	Devices    []AccessStat `json:"devices,omitempty"`
+	Devices    []AccessStat `json:"devices"`
 }
 
 func (s *Store) CreateSubscription(bundleID, label, format string) (*Subscription, error) {
