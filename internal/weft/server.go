@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -784,6 +785,16 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 
 // ---------- subscriptions api ----------
 
+// subURL is the one place a subscription link is built, so the key can never
+// be forgotten in one of the four places that show it.
+func (s *Server) subURL(r *http.Request, sub *Subscription) string {
+	u := publicBase(r) + "/sub/" + sub.Token
+	if sub.AccessKey != "" {
+		u += "?key=" + url.QueryEscape(sub.AccessKey)
+	}
+	return u
+}
+
 func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		BundleID string `json:"bundleId"`
@@ -806,7 +817,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"subscription": sub, "url": publicBase(r) + "/sub/" + sub.Token})
+	writeJSON(w, 200, map[string]any{"subscription": sub, "url": s.subURL(r, sub)})
 }
 
 func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request) {
@@ -835,12 +846,12 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 	}
 	out := map[string]any{"ok": true}
 	if body.Rotate {
-		t, err := s.store.RotateSubscriptionToken(id)
+		t, key, err := s.store.RotateSubscription(id)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		out["url"] = publicBase(r) + "/sub/" + t
+		out["url"] = s.subURL(r, &Subscription{Token: t, AccessKey: key})
 	}
 	writeJSON(w, 200, out)
 }
@@ -859,11 +870,11 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	token := ""
+	token, accessKey := "", ""
 	for _, sub := range subs {
 		if sub.ID == r.PathValue("id") {
 			if full, err := s.store.SubscriptionByID(sub.ID); err == nil {
-				token = full.Token
+				token, accessKey = full.Token, full.AccessKey
 			}
 		}
 	}
@@ -875,7 +886,8 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	if v, err := strconv.Atoi(r.URL.Query().Get("size")); err == nil && v >= 120 && v <= 1024 {
 		size = v
 	}
-	png, err := qrcode.Encode(publicBase(r)+"/sub/"+token, qrcode.Medium, size)
+	link := s.subURL(r, &Subscription{Token: token, AccessKey: accessKey})
+	png, err := qrcode.Encode(link, qrcode.Medium, size)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -911,6 +923,15 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !sub.Enabled {
 		http.Error(w, "subscription not found", http.StatusNotFound)
 		return
+	}
+	// A key in the query is the second half of the URL. A link that leaks
+	// without it is worth nothing.
+	if sub.AccessKey != "" {
+		given := r.URL.Query().Get("key")
+		if subtle.ConstantTimeCompare([]byte(given), []byte(sub.AccessKey)) != 1 {
+			http.Error(w, "subscription key required", http.StatusForbidden)
+			return
+		}
 	}
 	b, err := s.store.Bundle(sub.BundleID)
 	if err != nil {

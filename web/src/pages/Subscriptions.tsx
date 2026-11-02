@@ -19,7 +19,8 @@ export function Subscriptions({ state, refresh }: PageProps) {
   const [qr, setQr] = useState<Subscription | null>(null)
   const [fresh, setFresh] = useState<{ label: string; url: string } | null>(null)
 
-  const url = (s: Subscription) => `${state.publicBase}/sub/${s.token}`
+  const url = (s: Subscription) =>
+    `${state.publicBase}/sub/${s.token}${s.accessKey ? `?key=${s.accessKey}` : ''}`
 
   async function create() {
     if (!bundleID) return

@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   bundle_id TEXT NOT NULL,
   label TEXT NOT NULL DEFAULT '',
   token TEXT NOT NULL UNIQUE,
+  access_key TEXT NOT NULL DEFAULT '',
   format TEXT NOT NULL DEFAULT 'mihomo',
   enabled INTEGER NOT NULL DEFAULT 1,
   hits INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +116,9 @@ CREATE TABLE IF NOT EXISTS settings (
 	s.db.Exec(`ALTER TABLE reports ADD COLUMN avg_delay INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`ALTER TABLE hosts ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent'`)
 	s.db.Exec(`ALTER TABLE nodes ADD COLUMN source TEXT NOT NULL DEFAULT 'agent'`)
+	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN access_key TEXT NOT NULL DEFAULT ''`)
+	// every link gets a key, including ones created before keys existed
+	s.db.Exec(`UPDATE subscriptions SET access_key = lower(hex(randomblob(8))) WHERE access_key = ''`)
 	return err
 }
 
@@ -527,6 +531,7 @@ type Subscription struct {
 	BundleName string       `json:"bundleName,omitempty"`
 	Label      string       `json:"label"`
 	Token      string       `json:"token"`
+	AccessKey  string       `json:"accessKey"`
 	Format     string       `json:"format"`
 	Enabled    bool         `json:"enabled"`
 	Hits       int64        `json:"hits"`
@@ -536,11 +541,19 @@ type Subscription struct {
 	Devices    []AccessStat `json:"devices"`
 }
 
+// newAccessKey is the short second factor on a subscription URL. Shorter than
+// the token on purpose: it travels in a query string and people do retype it.
+func newAccessKey() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func (s *Store) CreateSubscription(bundleID, label, format string) (*Subscription, error) {
 	sub := &Subscription{ID: newID(), BundleID: bundleID, Label: label, Token: newToken(),
-		Format: format, Enabled: true, CreatedAt: now()}
-	_, err := s.db.Exec(`INSERT INTO subscriptions (id,bundle_id,label,token,format,enabled,created_at)
-VALUES (?,?,?,?,?,?,?)`, sub.ID, sub.BundleID, sub.Label, sub.Token, sub.Format, 1, sub.CreatedAt)
+		AccessKey: newAccessKey(), Format: format, Enabled: true, CreatedAt: now()}
+	_, err := s.db.Exec(`INSERT INTO subscriptions (id,bundle_id,label,token,access_key,format,enabled,created_at)
+VALUES (?,?,?,?,?,?,?,?)`, sub.ID, sub.BundleID, sub.Label, sub.Token, sub.AccessKey, sub.Format, 1, sub.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -548,7 +561,7 @@ VALUES (?,?,?,?,?,?,?)`, sub.ID, sub.BundleID, sub.Label, sub.Token, sub.Format,
 }
 
 func (s *Store) ListSubscriptions() ([]Subscription, error) {
-	rows, err := s.db.Query(`SELECT s.id,s.bundle_id,COALESCE(b.name,''),s.label,s.token,s.format,s.enabled,
+	rows, err := s.db.Query(`SELECT s.id,s.bundle_id,COALESCE(b.name,''),s.label,s.token,s.access_key,s.format,s.enabled,
 s.hits,s.last_used_at,s.last_ua,s.created_at
 FROM subscriptions s LEFT JOIN bundles b ON b.id = s.bundle_id ORDER BY s.created_at`)
 	if err != nil {
@@ -559,8 +572,8 @@ FROM subscriptions s LEFT JOIN bundles b ON b.id = s.bundle_id ORDER BY s.create
 	for rows.Next() {
 		var sub Subscription
 		var enabled int
-		if err := rows.Scan(&sub.ID, &sub.BundleID, &sub.BundleName, &sub.Label, &sub.Token, &sub.Format,
-			&enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.BundleID, &sub.BundleName, &sub.Label, &sub.Token, &sub.AccessKey,
+			&sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt); err != nil {
 			return nil, err
 		}
 		sub.Enabled = enabled == 1
@@ -572,8 +585,8 @@ FROM subscriptions s LEFT JOIN bundles b ON b.id = s.bundle_id ORDER BY s.create
 func (s *Store) SubscriptionByID(id string) (*Subscription, error) {
 	var sub Subscription
 	var enabled int
-	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,format,enabled,hits,last_used_at,last_ua,created_at
-FROM subscriptions WHERE id=?`, id).Scan(&sub.ID, &sub.BundleID, &sub.Label, &sub.Token,
+	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,access_key,format,enabled,hits,last_used_at,last_ua,created_at
+FROM subscriptions WHERE id=?`, id).Scan(&sub.ID, &sub.BundleID, &sub.Label, &sub.Token, &sub.AccessKey,
 		&sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -585,8 +598,8 @@ FROM subscriptions WHERE id=?`, id).Scan(&sub.ID, &sub.BundleID, &sub.Label, &su
 func (s *Store) SubscriptionByToken(token string) (*Subscription, error) {
 	var sub Subscription
 	var enabled int
-	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,format,enabled,hits,last_used_at,last_ua,created_at
-FROM subscriptions WHERE token=?`, token).Scan(&sub.ID, &sub.BundleID, &sub.Label, &sub.Token,
+	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,access_key,format,enabled,hits,last_used_at,last_ua,created_at
+FROM subscriptions WHERE token=?`, token).Scan(&sub.ID, &sub.BundleID, &sub.Label, &sub.Token, &sub.AccessKey,
 		&sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -614,10 +627,12 @@ func (s *Store) UpdateSubscription(id string, label *string, enabled *bool, form
 	return nil
 }
 
-func (s *Store) RotateSubscriptionToken(id string) (string, error) {
-	t := newToken()
-	_, err := s.db.Exec(`UPDATE subscriptions SET token=? WHERE id=?`, t, id)
-	return t, err
+// RotateSubscription retires both halves of the URL: the token in the path and
+// the key in the query.
+func (s *Store) RotateSubscription(id string) (string, string, error) {
+	t, key := newToken(), newAccessKey()
+	_, err := s.db.Exec(`UPDATE subscriptions SET token=?,access_key=? WHERE id=?`, t, key, id)
+	return t, key, err
 }
 
 func (s *Store) DeleteSubscription(id string) error {

@@ -61,6 +61,7 @@ export interface Subscription {
   bundleName: string
   label: string
   token: string
+  accessKey: string
   format: 'mihomo' | 'base64' | 'text'
   enabled: boolean
   hits: number
