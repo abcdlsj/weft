@@ -90,3 +90,32 @@ func TestNodeKeyIsStableAndDistinct(t *testing.T) {
 		t.Fatal("different credentials share a key")
 	}
 }
+
+func TestDetectDevice(t *testing.T) {
+	cases := map[string]string{
+		"ClashMetaForAndroid/2.11.1 (mihomo/1.19.2)":             "Clash Meta for Android",
+		"clash-verge/v2.2.3":                                     "Clash Verge",
+		"sing-box/1.11.0 (darwin arm64)":                         "sing-box",
+		"Shadowrocket/2.2.65 (iPhone17,2; iOS 18.4)":             "Shadowrocket",
+		"Stash/2.5.2 (iPhone16,1; iOS 18.3)":                     "Stash",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) curl/8": "Mozilla",
+		"": "未知客户端",
+	}
+	for ua, want := range cases {
+		if got := DetectDevice(ua); got != want {
+			t.Errorf("DetectDevice(%q) = %q, want %q", ua, got, want)
+		}
+	}
+}
+
+func TestSanitizeTag(t *testing.T) {
+	if got := sanitizeTag("  客厅 AppleTV  "); got != "客厅 AppleTV" {
+		t.Errorf("got %q", got)
+	}
+	if got := sanitizeTag(strings.Repeat("x", 80)); len([]rune(got)) != 32 {
+		t.Errorf("tag not capped: %d runes", len([]rune(got)))
+	}
+	if got := sanitizeTag("   "); got != "未标注设备" {
+		t.Errorf("got %q", got)
+	}
+}

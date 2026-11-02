@@ -179,6 +179,10 @@ IP ${d.ip} · 最近 ${ago(d.lastAt)} · 共 ${d.hits} 次`}
         <p className="prose muted">
           轮换地址会让旧链接立即失效；停用只是让链接返回 404，随时可以恢复。
         </p>
+        <p className="prose muted">
+          同一型号的两台设备会在上面合并成一行。想分开统计，在链接末尾加{' '}
+          <code className="mono">?tag=客厅 AppleTV</code>，标签就会代替客户端名显示。
+        </p>
       </section>
 
       {creating && (

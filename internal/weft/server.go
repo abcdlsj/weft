@@ -800,7 +800,12 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		target = sub.Format
 	}
 	ua := r.UserAgent()
-	s.store.RecordSubscriptionHit(sub.ID, DetectDevice(ua), ua,
+	device := DetectDevice(ua)
+	// ?tag= lets two devices of the same model tell themselves apart.
+	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
+		device = sanitizeTag(tag)
+	}
+	s.store.RecordSubscriptionHit(sub.ID, device, ua,
 		ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")))
 	w.Header().Set("Profile-Update-Interval", "12")
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=0; expire=0"))
@@ -861,6 +866,24 @@ func publicBase(r *http.Request) string {
 		host = h
 	}
 	return scheme + "://" + host
+}
+
+// sanitizeTag keeps a device tag short and printable.
+func sanitizeTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if len([]rune(tag)) > 32 {
+		tag = string([]rune(tag)[:32])
+	}
+	tag = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, tag)
+	if tag == "" {
+		return "未标注设备"
+	}
+	return tag
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
