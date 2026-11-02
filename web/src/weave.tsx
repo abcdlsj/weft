@@ -20,3 +20,20 @@ export function WeaveStrip({
     </div>
   )
 }
+
+/** A host's threads: one cell per node, filled when the node answers, hollow when it does not. */
+export function NodeThreads({ nodes }: { nodes: { key: string; name: string; alive: boolean; delayMs: number }[] }) {
+  if (nodes.length === 0) return <span className="muted">—</span>
+  const alive = nodes.filter((n) => n.alive).length
+  return (
+    <span className="threads" role="img" aria-label={`${alive} / ${nodes.length} 个节点可用`}>
+      {nodes.map((n) => (
+        <span
+          key={n.key}
+          className={n.alive ? 'threads__cell' : 'threads__cell threads__cell--down'}
+          title={`${n.name} · ${n.alive ? `${n.delayMs} ms` : '不可用'}`}
+        />
+      ))}
+    </span>
+  )
+}
