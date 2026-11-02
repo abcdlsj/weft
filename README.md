@@ -29,6 +29,29 @@ Running mihomo on several machines usually means several subscription URLs, drif
 | --- | --- | --- |
 | ![Bundles](docs/screenshots/bundles-light.jpg) | ![Subscriptions](docs/screenshots/subscriptions-light.jpg) | <img src="docs/screenshots/overview-phone.jpg" width="280" alt="Phone overview"> |
 
+## Install
+
+Grab the archive for your platform from [Releases](https://github.com/abcdlsj/weft/releases), or build it:
+
+```bash
+make build          # panel + binary, single file
+./weft version
+```
+
+## Components
+
+| Component | Where | What it does |
+| --- | --- | --- |
+| `weft serve` | `cmd/weft`, `internal/weft/server.go` | HTTP API, subscription endpoint, embedded panel, panel password and sessions |
+| `weft agent` | `cmd/weft`, `internal/weft/agent.go`, `mihomo.go` | reads the local mihomo external-controller and reports proxies outbound |
+| store | `internal/weft/store.go` | SQLite: hosts, nodes, bundles, subscriptions, reports, access log, settings |
+| subscription builder | `internal/weft/sub.go` | template-driven mihomo YAML, base64 and plain link lists |
+| device naming | `internal/weft/device.go` | User-Agent to client name, IP, optional `?tag=` override |
+| panel | `web/` | React + TypeScript SPA, five screens, dark mode, PWA, self-hosted fonts and icons |
+| demo fleet | `internal/weft/seed.go` | `--demo` seeds hosts, nodes, bundles and a live ticker |
+| icon generator | `tools/icons` | renders the PWA icons from the brand mark |
+| CI + release | `.github/workflows/` | gofmt/vet/test/build on every push, archives on every `v*` tag |
+
 ## Quick start
 
 ```bash

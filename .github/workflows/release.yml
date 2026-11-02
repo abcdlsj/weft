@@ -1,0 +1,61 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: build the panel
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+
+      - run: go test ./...
+
+      - name: build archives
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            name="weft_${VERSION}_${os}_${arch}"
+            mkdir -p "dist/${name}"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X github.com/abcdlsj/weft/internal/weft.AgentVersion=${VERSION}" \
+              -o "dist/${name}/weft" ./cmd/weft
+            cp README.md LICENSE "dist/${name}/"
+            tar -czf "dist/${name}.tar.gz" -C "dist/${name}" .
+            rm -rf "dist/${name}"
+          done
+          cd dist
+          sha256sum ./*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true

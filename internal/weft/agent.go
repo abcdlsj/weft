@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-const AgentVersion = "0.1.0"
+// AgentVersion is set at build time: -X github.com/abcdlsj/weft/internal/weft.AgentVersion=v0.1.0
+var AgentVersion = "dev"
 
 // AgentConfig is everything `weft agent` needs on a host that already runs mihomo.
 type AgentConfig struct {

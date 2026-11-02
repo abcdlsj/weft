@@ -1,10 +1,12 @@
 # build the panel into web/dist, then the single binary
 BINARY := weft
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X github.com/abcdlsj/weft/internal/weft.AgentVersion=$(VERSION)
 
 .PHONY: build panel test run demo fmt clean
 
 build: panel
-	go build -o $(BINARY) ./cmd/weft
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/weft
 
 panel:
 	npm --prefix web ci
