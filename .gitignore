@@ -1,0 +1,9 @@
+/weft
+weft.db
+weft.db-journal
+weft.db-wal
+weft.db-shm
+node_modules/
+web/node_modules/
+.DS_Store
+*.log
