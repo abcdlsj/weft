@@ -146,27 +146,21 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
           <ul className="facts facts--defs">
             <li>
               <span>按机器</span>
-              <span>每台机器一个组，exits 之间切换最直观；机器下线时只影响一个组。</span>
+              <span>每台一个组，切换最直观；单机下线只影响一个组。</span>
             </li>
             <li>
               <span>按协议</span>
-              <span>同协议聚在一起，便于比较传输差异，适合排障时临时用。</span>
+              <span>同协议聚合，便于比较传输差异。</span>
             </li>
             <li>
               <span>不分组</span>
-              <span>节点平铺，由客户端自己分组；节点很多时列表会很长。</span>
+              <span>节点平铺，交给客户端分组。</span>
             </li>
           </ul>
-          <div className="prose">
-            <p>
-              组行为决定客户端怎么用这些节点：<span className="mono">url-test</span> 定时测速自动选最快，
-              <span className="mono">select</span> 由你手动切换，
-              <span className="mono">fallback</span> 只在当前节点失败时换下一个。
-            </p>
-            <p>
-              订阅链接只认编排，换节点不需要重新发给设备：改完保存，客户端下次拉取就会拿到新配置。
-            </p>
-          </div>
+          <p className="prose">
+            组行为取 <span className="mono">url-test</span> 自动测速、<span className="mono">select</span>{' '}
+            手动切换。改完保存，客户端下次拉取即生效。
+          </p>
         </div>
       </section>
     </>

@@ -56,7 +56,7 @@ export function Subscriptions({ state, refresh }: PageProps) {
       <div className="title-row">
         <div>
           <h1>订阅</h1>
-          <p className="sub">一条链接对应一条编排。换设备、换客户端都用同一个地址。</p>
+          <p className="sub">一条链接对应一条编排。</p>
         </div>
         <div className="title-actions">
           <button
@@ -165,11 +165,11 @@ IP ${d.ip} · 最近 ${ago(d.lastAt)} · 共 ${d.hits} 次`}
         <ul className="facts facts--defs">
           <li>
             <span>mihomo YAML</span>
-            <span>整份配置：节点、分组、规则、DNS 都由 weft 生成，直接作为 profile 地址。</span>
+            <span>整份配置，直接作为 profile 地址。</span>
           </li>
           <li>
             <span>base64 链接</span>
-            <span>节点列表的 base64，给 v2rayN、Shadowrocket 这类只吃节点的客户端。</span>
+            <span>节点列表，给只吃节点的客户端。</span>
           </li>
           <li>
             <span>明文链接</span>
@@ -177,11 +177,8 @@ IP ${d.ip} · 最近 ${ago(d.lastAt)} · 共 ${d.hits} 次`}
           </li>
         </ul>
         <p className="prose muted">
-          轮换地址会让旧链接立即失效；停用只是让链接返回 404，随时可以恢复。
-        </p>
-        <p className="prose muted">
-          同一型号的两台设备会在上面合并成一行。想分开统计，在链接末尾加{' '}
-          <code className="mono">?tag=客厅 AppleTV</code>，标签就会代替客户端名显示。
+          轮换后旧地址立即失效。同型号设备想分开统计，在链接后加{' '}
+          <code className="mono">?tag=客厅 AppleTV</code>。
         </p>
       </section>
 

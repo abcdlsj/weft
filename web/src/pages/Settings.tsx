@@ -82,7 +82,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
                 ))}
               </div>
               <p className="prose muted" style={{ marginTop: 12 }}>
-                面板可安装到主屏；深色模式在 iPhone 上跟随系统切换。
+                可安装到主屏，深色模式跟随系统。
               </p>
             </div>
             <ul className="facts">
@@ -164,8 +164,8 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
             <span className="meta">{usingBuiltin ? '当前使用内置模板' : '已自定义'}</span>
           </header>
           <p className="prose">
-            weft 会用选中的节点填进 <code className="mono">PROXY</code> 与{' '}
-            <code className="mono">AUTO</code> 两个组，其余段落原样保留。清空保存即恢复内置模板。
+            节点填入 <code className="mono">PROXY</code> 与 <code className="mono">AUTO</code>
+            ，其余段落原样保留；清空保存即恢复内置模板。
           </p>
           <textarea
             className="code-input"

@@ -158,13 +158,12 @@ export function Hosts({ state, refresh }: PageProps) {
         <div className="panel-split">
           <div>
             <p className="prose">
-              agent 只读本机 mihomo 的 external-controller，节点配置和凭据都不出机器；上报是 agent
-              主动发起的出站请求，因此机器在 NAT 或防火墙后面也能用。
+              agent 只读本机 mihomo，节点与凭据不出机器；上报是出站请求，NAT 后也能用。
             </p>
             <ul className="facts">
               <li>
                 <span>上报周期</span>
-                <span>15 秒，失败后指数退避至 60 秒</span>
+                <span>15 秒，失败退避至 60 秒</span>
               </li>
               <li>
                 <span>待复核</span>

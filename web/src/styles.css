@@ -549,6 +549,15 @@ a {
 .grid--overview .hostlist {
   margin-bottom: 4px;
 }
+/* the code surface takes the card's leftover height so the two cards close together */
+.grid--overview .panel--connect .code {
+  flex: 1;
+  margin-bottom: 0;
+}
+.panel--connect .btn--connect {
+  margin-top: 14px;
+  align-self: flex-start;
+}
 .panel__foot {
   margin-top: auto;
   padding-top: 16px;
@@ -621,7 +630,7 @@ a {
 .table .num,
 .table th.num {
   text-align: right;
-  padding-right: 22px;
+  padding-right: 28px;
   white-space: nowrap;
 }
 .table th.num:last-child,

@@ -172,24 +172,20 @@ export function Overview({ state, refresh, navigate }: PageProps) {
           )}
         </section>
 
-        <section className="panel span-5">
+        <section className="panel span-5 panel--connect">
           <header>
             <h2>接入下一台机器</h2>
           </header>
-          <p className="prose">
-            机器上跑 agent，读出本机 mihomo 的节点并主动上报；不需要开端口，也不需要 SSH 凭据。
-          </p>
+          <p className="prose">跑 agent 读本机 mihomo，出站上报，不用开端口。</p>
           <pre className="code">{`weft agent \\
   --server ${state.publicBase} \\
   --token <机器 token> \\
   --controller http://127.0.0.1:9090 \\
   --secret <mihomo secret>`}</pre>
-          <div className="panel__foot">
-            <button className="btn btn--quiet" onClick={() => navigate('/hosts')}>
-              <Icon name="plus" />
-              生成 token 并复制完整命令
-            </button>
-          </div>
+          <button className="btn btn--quiet btn--connect" onClick={() => navigate('/hosts')}>
+            <Icon name="plus" />
+            生成 token 并复制完整命令
+          </button>
         </section>
       </div>
     </>
