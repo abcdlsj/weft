@@ -1,9 +1,11 @@
-export type HostStatus = 'online' | 'stale' | 'offline' | 'never'
+export type HostStatus = 'online' | 'stale' | 'offline' | 'never' | 'manual'
+export type HostKind = 'agent' | 'static'
 
 export interface Host {
   id: string
   name: string
   token?: string
+  kind: HostKind
   controller: string
   agentVersion: string
   mihomoVersion: string
@@ -24,6 +26,8 @@ export interface ProxyNode {
   port: number
   alive: boolean
   delayMs: number
+  source: 'agent' | 'config' | 'manual'
+  raw?: Record<string, unknown>
   updatedAt: number
 }
 
@@ -130,8 +134,25 @@ export const api = {
     req<{ ok: boolean }>('/api/setup', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   state: () => req<FleetState>('/api/state'),
-  createHost: (name: string) =>
-    req<Host>('/api/hosts', { method: 'POST', body: JSON.stringify({ name }) }),
+  createHost: (name: string, kind: HostKind = 'agent') =>
+    req<Host>('/api/hosts', { method: 'POST', body: JSON.stringify({ name, kind }) }),
+  createNode: (hostId: string, body: { links?: string[]; proxy?: Record<string, unknown> }) =>
+    req<{ saved: ProxyNode[]; failed: string[] }>(`/api/hosts/${hostId}/nodes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateNode: (hostId: string, key: string, proxy: Record<string, unknown>) =>
+    req<ProxyNode>(`/api/hosts/${hostId}/nodes/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify(proxy),
+    }),
+  deleteNode: (hostId: string, key: string) =>
+    req<{ ok: boolean }>(`/api/hosts/${hostId}/nodes/${key}`, { method: 'DELETE' }),
+  parseNode: (link: string) =>
+    req<{ proxy: Record<string, unknown>; name: string; type: string }>('/api/nodes/parse', {
+      method: 'POST',
+      body: JSON.stringify({ link }),
+    }),
   patchHost: (id: string, body: { name?: string; rotate?: boolean }) =>
     req<{ ok: boolean; token?: string }>(`/api/hosts/${id}`, {
       method: 'PATCH',
@@ -200,6 +221,8 @@ export function statusLabel(status: HostStatus): string {
       return '待复核'
     case 'offline':
       return '离线'
+    case 'manual':
+      return '手工'
     default:
       return '未接入'
   }

@@ -111,8 +111,10 @@ CREATE TABLE IF NOT EXISTS settings (
   v TEXT NOT NULL
 );
 `)
-	// older databases predate the latency column; adding it is idempotent enough
+	// older databases predate these columns; adding them is idempotent enough
 	s.db.Exec(`ALTER TABLE reports ADD COLUMN avg_delay INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE hosts ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent'`)
+	s.db.Exec(`ALTER TABLE nodes ADD COLUMN source TEXT NOT NULL DEFAULT 'agent'`)
 	return err
 }
 
@@ -132,10 +134,14 @@ func now() int64 { return time.Now().Unix() }
 
 // ---------- hosts ----------
 
+// Host is one machine in the fleet. kind separates hosts that report through
+// an agent (`agent`) from hosts whose nodes are entered by hand (`static`),
+// which is what a bare hysteria2 / xray box needs.
 type Host struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Token         string `json:"token,omitempty"`
+	Kind          string `json:"kind"`
 	Controller    string `json:"controller"`
 	AgentVersion  string `json:"agentVersion"`
 	MihomoVersion string `json:"mihomoVersion"`
@@ -145,10 +151,23 @@ type Host struct {
 	AliveCount    int    `json:"aliveCount"`
 }
 
-func (s *Store) CreateHost(name string) (*Host, error) {
-	h := &Host{ID: newID(), Name: name, Token: newToken(), CreatedAt: now()}
-	_, err := s.db.Exec(`INSERT INTO hosts (id,name,token,created_at) VALUES (?,?,?,?)`,
-		h.ID, h.Name, h.Token, h.CreatedAt)
+const (
+	HostAgent  = "agent"
+	HostStatic = "static"
+)
+
+func NormalizeHostKind(kind string) string {
+	if kind == HostStatic {
+		return HostStatic
+	}
+	return HostAgent
+}
+
+func (s *Store) CreateHost(name, kind string) (*Host, error) {
+	kind = NormalizeHostKind(kind)
+	h := &Host{ID: newID(), Name: name, Kind: kind, Token: newToken(), CreatedAt: now()}
+	_, err := s.db.Exec(`INSERT INTO hosts (id,name,token,kind,created_at) VALUES (?,?,?,?,?)`,
+		h.ID, h.Name, h.Token, h.Kind, h.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +176,7 @@ func (s *Store) CreateHost(name string) (*Host, error) {
 
 func (s *Store) ListHosts() ([]Host, error) {
 	rows, err := s.db.Query(`
-SELECT h.id, h.name, h.controller, h.agent_version, h.mihomo_version, h.last_seen, h.created_at,
+SELECT h.id, h.name, h.kind, h.controller, h.agent_version, h.mihomo_version, h.last_seen, h.created_at,
        COALESCE(n.total,0), COALESCE(n.alive,0)
 FROM hosts h
 LEFT JOIN (SELECT host_id, COUNT(*) total, SUM(alive) alive FROM nodes GROUP BY host_id) n ON n.host_id = h.id
@@ -169,7 +188,7 @@ ORDER BY h.created_at`)
 	var out []Host
 	for rows.Next() {
 		var h Host
-		if err := rows.Scan(&h.ID, &h.Name, &h.Controller, &h.AgentVersion, &h.MihomoVersion,
+		if err := rows.Scan(&h.ID, &h.Name, &h.Kind, &h.Controller, &h.AgentVersion, &h.MihomoVersion,
 			&h.LastSeen, &h.CreatedAt, &h.NodeCount, &h.AliveCount); err != nil {
 			return nil, err
 		}
@@ -180,8 +199,8 @@ ORDER BY h.created_at`)
 
 func (s *Store) HostByID(id string) (*Host, error) {
 	var h Host
-	err := s.db.QueryRow(`SELECT id,name,token,controller,agent_version,mihomo_version,last_seen,created_at
-FROM hosts WHERE id=?`, id).Scan(&h.ID, &h.Name, &h.Token, &h.Controller, &h.AgentVersion,
+	err := s.db.QueryRow(`SELECT id,name,token,kind,controller,agent_version,mihomo_version,last_seen,created_at
+FROM hosts WHERE id=?`, id).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controller, &h.AgentVersion,
 		&h.MihomoVersion, &h.LastSeen, &h.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -191,8 +210,8 @@ FROM hosts WHERE id=?`, id).Scan(&h.ID, &h.Name, &h.Token, &h.Controller, &h.Age
 
 func (s *Store) HostByToken(token string) (*Host, error) {
 	var h Host
-	err := s.db.QueryRow(`SELECT id,name,token,controller,agent_version,mihomo_version,last_seen,created_at
-FROM hosts WHERE token=?`, token).Scan(&h.ID, &h.Name, &h.Token, &h.Controller, &h.AgentVersion,
+	err := s.db.QueryRow(`SELECT id,name,token,kind,controller,agent_version,mihomo_version,last_seen,created_at
+FROM hosts WHERE token=?`, token).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controller, &h.AgentVersion,
 		&h.MihomoVersion, &h.LastSeen, &h.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -237,9 +256,16 @@ type Node struct {
 	Port      int             `json:"port"`
 	Alive     bool            `json:"alive"`
 	DelayMS   int             `json:"delayMs"`
+	Source    string          `json:"source"` // agent | manual
 	Raw       json.RawMessage `json:"raw,omitempty"`
 	UpdatedAt int64           `json:"updatedAt"`
 }
+
+const (
+	NodeAgent  = "agent"
+	NodeConfig = "config" // read from a hysteria / xray config on the host
+	NodeManual = "manual"
+)
 
 func (s *Store) ReplaceNodes(hostID string, nodes []Node) error {
 	tx, err := s.db.Begin()
@@ -247,7 +273,9 @@ func (s *Store) ReplaceNodes(hostID string, nodes []Node) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM nodes WHERE host_id=?`, hostID); err != nil {
+	// Only the agent snapshot is replaced wholesale; hand-entered nodes survive
+	// every report so a host can carry both.
+	if _, err := tx.Exec(`DELETE FROM nodes WHERE host_id=? AND source<>?`, hostID, NodeManual); err != nil {
 		return err
 	}
 	ts := now()
@@ -257,9 +285,13 @@ func (s *Store) ReplaceNodes(hostID string, nodes []Node) error {
 		if len(raw) == 0 {
 			raw = json.RawMessage(`{}`)
 		}
-		if _, err := tx.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,raw,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?)`, hostID, n.Key, n.Name, n.Type, n.Server, n.Port,
-			boolInt(n.Alive), n.DelayMS, string(raw), ts); err != nil {
+		source := n.Source
+		if source != NodeConfig {
+			source = NodeAgent
+		}
+		if _, err := tx.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,source,raw,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?)`, hostID, n.Key, n.Name, n.Type, n.Server, n.Port,
+			boolInt(n.Alive), n.DelayMS, source, string(raw), ts); err != nil {
 			return err
 		}
 		if n.Alive {
@@ -282,7 +314,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?)`, hostID, n.Key, n.Name, n.Type, n.Server, n.Port,
 }
 
 func (s *Store) ListNodes(hostID string) ([]Node, error) {
-	q := `SELECT n.host_id, h.name, n.key, n.name, n.type, n.server, n.port, n.alive, n.delay_ms, n.raw, n.updated_at
+	q := `SELECT n.host_id, h.name, n.key, n.name, n.type, n.server, n.port, n.alive, n.delay_ms, n.source, n.raw, n.updated_at
 FROM nodes n JOIN hosts h ON h.id = n.host_id`
 	args := []any{}
 	if hostID != "" {
@@ -301,7 +333,7 @@ FROM nodes n JOIN hosts h ON h.id = n.host_id`
 		var alive int
 		var raw string
 		if err := rows.Scan(&n.HostID, &n.HostName, &n.Key, &n.Name, &n.Type, &n.Server,
-			&n.Port, &alive, &n.DelayMS, &raw, &n.UpdatedAt); err != nil {
+			&n.Port, &alive, &n.DelayMS, &n.Source, &raw, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		n.Alive = alive == 1
@@ -309,6 +341,51 @@ FROM nodes n JOIN hosts h ON h.id = n.host_id`
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) NodeByKey(hostID, key string) (*Node, error) {
+	var n Node
+	var alive int
+	var raw string
+	err := s.db.QueryRow(`SELECT host_id, key, name, type, server, port, alive, delay_ms, source, raw, updated_at
+FROM nodes WHERE host_id=? AND key=?`, hostID, key).Scan(&n.HostID, &n.Key, &n.Name, &n.Type,
+		&n.Server, &n.Port, &alive, &n.DelayMS, &n.Source, &raw, &n.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	n.Alive = alive == 1
+	n.Raw = json.RawMessage(raw)
+	return &n, nil
+}
+
+// UpsertNode writes a hand-entered node. The key is derived from the proxy
+// itself, so re-importing the same link updates instead of duplicating.
+func (s *Store) UpsertNode(hostID string, n Node) error {
+	n.Source = NodeManual
+	raw := n.Raw
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	_, err := s.db.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,source,raw,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(host_id,key) DO UPDATE SET
+  name=excluded.name, type=excluded.type, server=excluded.server, port=excluded.port,
+  source=excluded.source, raw=excluded.raw, updated_at=excluded.updated_at`,
+		hostID, n.Key, n.Name, n.Type, n.Server, n.Port, boolInt(n.Alive), n.DelayMS,
+		NodeManual, string(raw), now())
+	return err
+}
+
+func (s *Store) DeleteNode(hostID, key string) error {
+	if _, err := s.db.Exec(`DELETE FROM nodes WHERE host_id=? AND key=? AND source=?`,
+		hostID, key, NodeManual); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM bundle_members WHERE host_id=? AND node_key=?`, hostID, key)
+	return err
 }
 
 // ---------- bundles ----------

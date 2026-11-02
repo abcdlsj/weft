@@ -27,7 +27,7 @@ func SeedDemo(st *Store) (*Bundle, error) {
 	var bundles []*Bundle
 	hostDelay := map[string]int{}
 	for hi, h := range hosts {
-		host, err := st.CreateHost(h.name)
+		host, err := st.CreateHost(h.name, HostAgent)
 		if err != nil {
 			return nil, err
 		}
@@ -68,6 +68,32 @@ func SeedDemo(st *Store) (*Bundle, error) {
 		}
 		st.db.Exec(`UPDATE hosts SET last_seen=?,controller=?,agent_version=?,mihomo_version=? WHERE id=?`,
 			now(), "http://127.0.0.1:9090", AgentVersion, "v1.19.2", host.ID)
+	}
+
+	// A bare hysteria2 / xray box: no mihomo to read, so its nodes are entered
+	// by hand. This is the case weft exists for.
+	static, err := st.CreateHost("h2nexus", HostStatic)
+	if err != nil {
+		return nil, err
+	}
+	for _, link := range []string{
+		"hy2://demo-berlin@203.0.113.24:36906?sni=www.bing.com&insecure=1#Berlin-Hy2",
+		"vless://11111111-2222-3333-4444-555555555555@203.0.113.24:8443?encryption=none" +
+			"&flow=xtls-rprx-vision&security=reality&sni=www.bing.com&fp=chrome" +
+			"&pbk=RgDO6nczQXgj_D-VGus4e3pZHL4bIwFA7fHXocnW9QI&sid=f8a64b66&type=tcp#Berlin-Reality",
+	} {
+		p, err := ParseProxyLink(link)
+		if err != nil {
+			return nil, err
+		}
+		n, err := NodeFromProxy(p)
+		if err != nil {
+			return nil, err
+		}
+		if err := st.UpsertNode(static.ID, n); err != nil {
+			return nil, err
+		}
+		members = append(members, Member{HostID: static.ID, Key: n.Key})
 	}
 
 	main, err := st.CreateBundle(Bundle{

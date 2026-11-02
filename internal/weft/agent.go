@@ -14,12 +14,14 @@ import (
 // AgentVersion is set at build time: -X github.com/abcdlsj/weft/internal/weft.AgentVersion=v0.1.0
 var AgentVersion = "dev"
 
-// AgentConfig is everything `weft agent` needs on a host that already runs mihomo.
+// AgentConfig is everything `weft agent` needs on a host. A host may run mihomo,
+// serve hysteria2 / xray directly, or both; any combination is fine.
 type AgentConfig struct {
 	Server     string
 	Token      string
 	Controller string
 	Secret     string
+	Services   ServiceConfigs
 	Interval   time.Duration
 	Verbose    bool
 }
@@ -43,9 +45,9 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 
 	for {
 		start := time.Now()
-		nodes, version, err := client.Collect()
+		nodes, version, err := collectEverything(cfg, client)
 		if err != nil {
-			log.Printf("agent: reading mihomo at %s: %v", cfg.Controller, err)
+			log.Printf("agent: %v", err)
 			backoff = nextBackoff(backoff, cfg.Interval)
 		} else {
 			report := agentReport{
@@ -82,6 +84,42 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 
 func joinURL(base, path string) string {
 	return strings.TrimRight(base, "/") + path
+}
+
+// collectEverything merges the mihomo inventory with whatever the service
+// configs on this host describe. A missing mihomo is not an error when the
+// host serves hy2 or xray directly.
+func collectEverything(cfg AgentConfig, client *MihomoClient) ([]Node, string, error) {
+	var nodes []Node
+	var version string
+	var problems []string
+
+	if cfg.Controller != "" {
+		found, v, err := client.Collect()
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("reading mihomo at %s: %v", cfg.Controller, err))
+		} else {
+			nodes = append(nodes, found...)
+			version = v
+		}
+	}
+
+	if !cfg.Services.Empty() {
+		found, notes := CollectServiceNodes(cfg.Services)
+		nodes = append(nodes, found...)
+		problems = append(problems, notes...)
+		for _, note := range notes {
+			log.Printf("agent: %s", note)
+		}
+	}
+
+	if len(nodes) == 0 && len(problems) > 0 {
+		return nil, version, fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	if cfg.Controller == "" && cfg.Services.Empty() {
+		return nil, version, fmt.Errorf("没有采集源：给 --controller 或 --hysteria-config / --xray-config")
+	}
+	return nodes, version, nil
 }
 
 func nextBackoff(cur, base time.Duration) time.Duration {

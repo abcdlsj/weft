@@ -2008,3 +2008,238 @@ textarea::placeholder {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- adding a host: two kinds ---------- */
+.kind-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.kind-choice__option {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.kind-choice__option strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.kind-choice__option span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--faint);
+}
+.kind-choice__option:hover {
+  border-color: var(--control);
+}
+.kind-choice__option[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.kind-choice__option[aria-pressed='true'] span {
+  color: var(--accent);
+}
+
+/* ---------- node form ---------- */
+.node-form__proto {
+  margin-bottom: 20px;
+}
+.node-form__blurb {
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.node-form__group + .node-form__group {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.node-form__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px 14px;
+}
+.node-form__grid .field {
+  margin-top: 0;
+}
+.field--wide {
+  grid-column: 1 / -1;
+}
+.field--switch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label control'
+    'hint hint';
+  align-items: center;
+  gap: 4px 12px;
+  min-height: var(--control-height);
+}
+.field--switch > span:first-child {
+  grid-area: label;
+  white-space: nowrap;
+}
+.field--switch .switch {
+  grid-area: control;
+}
+.field--switch .field__hint {
+  grid-area: hint;
+}
+.req {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--negative);
+  opacity: 0.8;
+}
+
+/* ---------- pasting links ---------- */
+.link-import__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.link-import__list li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 150px);
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 10px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.link-import__list li + li {
+  border-top: 1px solid var(--rule);
+}
+.link-import__list li[data-ok='false'] {
+  background: var(--danger-wash);
+}
+.link-import__proto {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.link-import__list li[data-ok='false'] .link-import__proto {
+  color: var(--danger-ink);
+}
+.link-import__name {
+  color: var(--text);
+}
+.link-import__where {
+  color: var(--faint);
+  text-align: right;
+}
+
+/* ---------- node table, source tags ---------- */
+.table--nodes th,
+.table--nodes td {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.source {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.source--manual {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.source--config {
+  background: var(--pill-ok-bg);
+  color: var(--pill-ok-ink);
+}
+.node-row-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+.icon-btn--sm {
+  width: 26px;
+  height: 26px;
+}
+.icon-btn--sm svg {
+  width: 14px;
+  height: 14px;
+}
+.node-readonly {
+  font-size: 11px;
+}
+.node-empty {
+  padding: 16px 0 4px;
+  font-size: 13px;
+  color: var(--faint);
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 26px;
+}
+.section-head .section-title {
+  margin: 0;
+}
+.row-actions--tight {
+  margin: 0;
+  gap: 6px;
+}
+.drawer--wide {
+  width: min(640px, 100%);
+}
+.pill--quiet {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.btn--secondary {
+  border-color: var(--control);
+  background: var(--surface);
+  color: var(--text);
+}
+.btn--secondary:hover {
+  background: var(--raised);
+}
+
+@media (max-width: 640px) {
+  .kind-choice {
+    grid-template-columns: 1fr;
+  }
+  .node-form__grid {
+    grid-template-columns: 1fr;
+  }
+  .link-import__list li {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+  .link-import__where {
+    display: none;
+  }
+}
+
+/* the code textarea and form inputs take the accent on their edge, not a ring */
+.code-input:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}

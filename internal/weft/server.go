@@ -55,6 +55,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/hosts", s.authed(s.handleCreateHost))
 	s.mux.HandleFunc("DELETE /api/hosts/{id}", s.authed(s.handleDeleteHost))
 	s.mux.HandleFunc("PATCH /api/hosts/{id}", s.authed(s.handlePatchHost))
+	s.mux.HandleFunc("POST /api/hosts/{id}/nodes", s.authed(s.handleCreateNode))
+	s.mux.HandleFunc("PUT /api/hosts/{id}/nodes/{key}", s.authed(s.handleUpdateNode))
+	s.mux.HandleFunc("DELETE /api/hosts/{id}/nodes/{key}", s.authed(s.handleDeleteNode))
+	s.mux.HandleFunc("POST /api/nodes/parse", s.authed(s.handleParseNode))
 	s.mux.HandleFunc("POST /api/bundles", s.authed(s.handleCreateBundle))
 	s.mux.HandleFunc("PUT /api/bundles/{id}", s.authed(s.handleUpdateBundle))
 	s.mux.HandleFunc("DELETE /api/bundles/{id}", s.authed(s.handleDeleteBundle))
@@ -292,13 +296,16 @@ type hostView struct {
 	Status string `json:"status"`
 }
 
-func hostStatus(lastSeen int64) string {
+func hostStatus(h Host) string {
+	if h.Kind == HostStatic {
+		return "manual"
+	}
 	switch {
-	case lastSeen == 0:
+	case h.LastSeen == 0:
 		return "never"
-	case now()-lastSeen < 45:
+	case now()-h.LastSeen < 45:
 		return "online"
-	case now()-lastSeen < 600:
+	case now()-h.LastSeen < 600:
 		return "stale"
 	default:
 		return "offline"
@@ -313,7 +320,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 	views := make([]hostView, 0, len(hosts))
 	for _, h := range hosts {
-		views = append(views, hostView{Host: h, Status: hostStatus(h.LastSeen)})
+		views = append(views, hostView{Host: h, Status: hostStatus(h)})
 	}
 	nodes, err := s.store.ListNodes("")
 	if err != nil {
@@ -451,6 +458,7 @@ func bucketSeries(reports []Report) []map[string]any {
 func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
+		Kind string `json:"kind"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "请求无效")
@@ -461,7 +469,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器名需非空且不含空格或斜杠")
 		return
 	}
-	h, err := s.store.CreateHost(name)
+	h, err := s.store.CreateHost(name, body.Kind)
 	if err != nil {
 		writeErr(w, 409, "机器名已存在："+name)
 		return
@@ -508,6 +516,125 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// ---------- nodes api ----------
+
+// Nodes can arrive two ways: a proxy map from the panel form, or a batch of
+// share links pasted straight out of a client. Both end up in the same table.
+func (s *Server) handleCreateNode(w http.ResponseWriter, r *http.Request) {
+	hostID := r.PathValue("id")
+	if _, err := s.store.HostByID(hostID); err != nil {
+		writeErr(w, 404, "机器不存在")
+		return
+	}
+	var body struct {
+		Links []string       `json:"links"`
+		Proxy map[string]any `json:"proxy"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+
+	var proxies []map[string]any
+	var failed []string
+	for _, link := range body.Links {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		p, err := ParseProxyLink(link)
+		if err != nil {
+			failed = append(failed, err.Error())
+			continue
+		}
+		proxies = append(proxies, p)
+	}
+	if body.Proxy != nil {
+		proxies = append(proxies, body.Proxy)
+	}
+	if len(proxies) == 0 {
+		if len(failed) > 0 {
+			writeErr(w, 400, strings.Join(failed, "；"))
+			return
+		}
+		writeErr(w, 400, "没有可保存的节点")
+		return
+	}
+
+	saved := make([]Node, 0, len(proxies))
+	for _, p := range proxies {
+		n, err := NodeFromProxy(p)
+		if err != nil {
+			failed = append(failed, err.Error())
+			continue
+		}
+		if err := s.store.UpsertNode(hostID, n); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		saved = append(saved, n)
+	}
+	writeJSON(w, 200, map[string]any{"saved": saved, "failed": failed})
+}
+
+func (s *Server) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
+	hostID, key := r.PathValue("id"), r.PathValue("key")
+	if _, err := s.store.NodeByKey(hostID, key); err != nil {
+		writeErr(w, 404, "节点不存在")
+		return
+	}
+	var proxy map[string]any
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&proxy); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+	n, err := NodeFromProxy(proxy)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	// the key follows the credential, so an edit that changes the endpoint has
+	// to retire the old row before writing the new one
+	if err := s.store.DeleteNode(hostID, key); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if err := s.store.UpsertNode(hostID, n); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, n)
+}
+
+func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteNode(r.PathValue("id"), r.PathValue("key")); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) handleParseNode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Link string `json:"link"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+	p, err := ParseProxyLink(body.Link)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	n, err := NodeFromProxy(p)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"proxy": n.Raw, "name": n.Name, "type": n.Type})
 }
 
 // ---------- bundles api ----------

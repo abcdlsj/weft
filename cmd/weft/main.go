@@ -111,11 +111,25 @@ func runAgent(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
 	server := fs.String("server", "", "weft server base url, e.g. https://weft.example.com")
 	token := fs.String("token", os.Getenv("WEFT_TOKEN"), "agent token issued by the panel")
-	controller := fs.String("controller", "http://127.0.0.1:9090", "mihomo external-controller")
+	controller := fs.String("controller", "http://127.0.0.1:9090", "mihomo external-controller, empty to skip mihomo")
 	secret := fs.String("secret", os.Getenv("MIHOMO_SECRET"), "mihomo external-controller secret")
+	hysteriaConfig := fs.String("hysteria-config", "", "hysteria2 server config to read nodes from")
+	xrayConfig := fs.String("xray-config", "", "xray server config to read nodes from")
+	publicHost := fs.String("public-host", "", "public address of this host for nodes read from service configs")
 	interval := fs.Duration("interval", 15*time.Second, "report interval")
 	verbose := fs.Bool("verbose", false, "log each report")
 	fs.Parse(args)
+
+	// A box that only serves hy2 or xray has no controller; do not fail on one.
+	controllerSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "controller" {
+			controllerSet = true
+		}
+	})
+	if !controllerSet && (*hysteriaConfig != "" || *xrayConfig != "") {
+		*controller = ""
+	}
 
 	if *server == "" || *token == "" {
 		fmt.Println("agent needs --server and --token")
@@ -128,8 +142,13 @@ func runAgent(args []string) {
 		Token:      *token,
 		Controller: *controller,
 		Secret:     *secret,
-		Interval:   *interval,
-		Verbose:    *verbose,
+		Services: weft.ServiceConfigs{
+			Hysteria:   *hysteriaConfig,
+			Xray:       *xrayConfig,
+			PublicHost: *publicHost,
+		},
+		Interval: *interval,
+		Verbose:  *verbose,
 	}); err != nil && ctx.Err() == nil {
 		log.Fatal(err)
 	}

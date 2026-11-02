@@ -54,8 +54,17 @@ export function Copy({ value, label = '复制' }: { value: string; label?: strin
 
 export function StatusPill({ status }: { status: string }) {
   const label =
-    status === 'online' ? '在线' : status === 'stale' ? '待复核' : status === 'offline' ? '离线' : '未接入'
-  const tone = status === 'online' ? 'ok' : status === 'stale' ? 'warn' : 'neutral'
+    status === 'online'
+      ? '在线'
+      : status === 'stale'
+        ? '待复核'
+        : status === 'offline'
+          ? '离线'
+          : status === 'manual'
+            ? '手工'
+            : '未接入'
+  const tone =
+    status === 'online' ? 'ok' : status === 'stale' ? 'warn' : status === 'manual' ? 'quiet' : 'neutral'
   return <span className={`pill pill--${tone}`}>{label}</span>
 }
 
@@ -105,10 +114,12 @@ export function Drawer({
   title,
   onClose,
   children,
+  wide,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
+  wide?: boolean
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -119,7 +130,7 @@ export function Drawer({
   }, [onClose])
   return (
     <div className="scrim scrim--right" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()} aria-label={title}>
+      <aside className={`drawer${wide ? ' drawer--wide' : ''}`} onClick={(e) => e.stopPropagation()} aria-label={title}>
         <header className="drawer__head">
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="关闭">

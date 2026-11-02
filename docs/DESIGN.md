@@ -4,33 +4,40 @@
 
 ## 1. 目标
 
-管理多台机器上的 mihomo，把它们的节点聚合成**一条**对外订阅 URL，配一个精致、移动端优先的 Web 面板。
+把散落在多台机器上的代理节点收进一处，对外只发**一条**订阅 URL，配一个移动端优先的 Web 面板。
 
-非目标：不做协议实现（节点连接全部交给 mihomo）；不做机场转售；不做多租户。
+非目标：不做协议实现（节点连接交给客户端内核）；**不做流量中转**——订阅里的流量仍是设备直连节点，weft 不在数据通路上；不做机场转售；不做多租户。
 
 ## 2. 拓扑
 
 ```
- mihomo (host)  ← 127.0.0.1:9090 (external-controller)
-      ↑
- weft agent  ──出站 HTTPS──▶  weft server  ──▶ /sub/{token} ──▶ 客户端
-                                   │
-                                   └──▶ 内嵌 SPA 面板
+ 跑 mihomo 的机器   ─┐
+ 只跑 hy2 / xray 的机器 ─┼─ weft agent ──出站 HTTPS──▶ weft server ──▶ /sub/{token} ──▶ 客户端
+ 面板里手填的节点     ─┘                                │
+                                                          └──▶ 内嵌 SPA 面板
 ```
 
-选择 A 方案（agent 上报）的理由：
+一台机器上的节点有三种来源，可以共存：
+
+| 来源 | 从哪来 | 生命周期 |
+|---|---|---|
+| `agent` | 本机 mihomo 的 `external-controller` | 每次上报全量覆盖 |
+| `config` | 本机 `hysteria` / `xray` 的服务端配置 | 每次上报全量覆盖 |
+| `manual` | 面板表单或粘贴分享链接 | 只能手工增删改 |
+
+选 agent 上报（而不是 server 去 SSH 读配置）的理由：
 
 - 无需在主机上开入站端口或端口映射，NAT 后可用。
 - server 不持有任何 SSH 凭据。
-- agent 与 mihomo 同机，`external-controller` 保持 `127.0.0.1` 绑定，攻击面最小。
-- 上报走 pull 语义（agent 主动 POST），失败可重试，网络抖动容忍度高。
+- 上报是出站请求，失败可重试，网络抖动容忍度高。
+- 凭据读取集中在一个有权限的进程里，配置路径由部署者显式指定。
 
 ## 3. 领域模型
 
 | 实体 | 字段要点 | 说明 |
 |---|---|---|
-| `Host` | id, name, token, last_seen, agent_version, controller_url, status | 一台机器。`status` 由 `last_seen` 推导：online < 45s, stale < 10m, offline |
-| `Node` | host_id, name(原名), key(去重键: type+server+port+uuid/password hash), type, meta, delay_ms, alive, updated_at | agent 上报的 proxies 快照，每次上报整体覆盖该 host 的集合 |
+| `Host` | id, name, token, **kind**(agent/static), last_seen, agent_version, controller_url, status | 一台机器。`kind=agent` 跑 mihomo，`kind=static` 只跑服务端（hy2/xray）。`status` 由 `last_seen` 推导：online < 45s, stale < 10m, offline；static 恒为 `manual` |
+| `Node` | host_id, name(原名), key(去重键: type+server+port+uuid/password hash), type, **source**(agent/config/manual), delay_ms, alive, raw, updated_at | `raw` 是完整的 mihomo proxy map，订阅直接用它，不再做协议解析 |
 | `Bundle` | id, name, slug, rule_template_id, member_keys, group_by | 跨 host 的节点选集 + 分组策略 |
 | `Subscription` | id, bundle_id, token, target_format, enabled, last_used_at, ua | 一条对外 URL |
 | `RuleTemplate` | id, name, yaml_body | 通用段（proxy-groups / rules / dns 等） |
@@ -39,7 +46,34 @@
 
 端点命名：`hostname/节点名`（如 `hk-01/HK-A`），冲突时追加 `#2`。订阅里保证全局唯一。
 
+节点写入端点（只动 `source=manual` 的行，agent / config 的快照不可改）：
+
+- `POST /api/hosts/{id}/nodes` — body 为 `{"links": ["hy2://…"]}` 或 `{"proxy": {…}}`；链接导入会逐条返回失败原因
+- `PUT /api/hosts/{id}/nodes/{key}`、`DELETE /api/hosts/{id}/nodes/{key}`
+- `POST /api/nodes/parse` — 只解析不落库，面板用来预览
+
+链接解析支持 `hy2://` / `hysteria2://`、`vless://`（含 Reality）、`trojan://`、`ss://`、`vmess://`；key 由凭据推导，重复导入同一条只会更新。
+
 ## 4. Agent 协议
+
+采集源由 flag 决定，三者可任意组合：
+
+```bash
+# 跑 mihomo 的机器
+weft agent --server ... --token ... --controller http://127.0.0.1:9090 --secret <secret>
+
+# 只跑 hy2 / xray 的机器
+weft agent --server ... --token ... \
+  --hysteria-config /etc/hysteria/config.yaml \
+  --xray-config /usr/local/etc/xray/config.json \
+  --public-host 203.0.113.24
+```
+
+服务端配置反向推导客户端节点，是这套设计的关键一步：
+
+- **hysteria2**：`listen` → 端口；`auth.password` / `auth.userpass` → 凭据（多用户展开成多个节点）；`tls.sni` → 其次 `acme.domains[0]` → 其次证书 SAN；读不到证书或证书自签 → `skip-cert-verify: true`；`obfs.salamander` → 混淆；`bandwidth` → 上下行。
+- **xray**：`inbounds[].port` / `[].protocol` / `settings.clients[].id`；`streamSettings.security=reality` 时，客户端需要的 `publicKey` **由服务端 `privateKey` 经 X25519 推导**（`crypto/ecdh`，与 `xray x25519` 同算法），`serverNames[0]` → SNI，`shortIds[0]` → short-id。
+- **公网地址无法从配置读出**（云上公网 IP 常是 NAT），必须由 `--public-host` 给出；缺省时退回 `127.0.0.1`，面板会显示为不可用。
 
 单次上报，`POST /api/agent/report`，`Authorization: Bearer <agent-token>`：
 
@@ -83,7 +117,7 @@
 信息架构（4 个目的地，移动端底部 tab / 桌面侧栏）：
 
 1. **概览** — 在线机器数、节点总数/存活比、订阅最近访问；机器卡片带延迟脉冲。
-2. **机器** — 列表 + 详情（agent 版本、最后上报、节点表、注册命令一键复制）。
+2. **机器** — 列表 + 详情（类型、最后上报、节点表、接入命令一键复制）；抽屉里可直接粘贴导入或手工添加节点。
 3. **编排** — Bundle 列表 → 编辑器（左侧节点选择、右侧分组预览、顶部实时 YAML 预览）。
 4. **订阅** — 链接列表、QR、复制、吊销、访问记录。
 
