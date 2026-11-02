@@ -43,6 +43,14 @@ export interface Bundle {
   members: Member[]
 }
 
+export interface AccessStat {
+  device: string
+  ua: string
+  ip: string
+  hits: number
+  lastAt: number
+}
+
 export interface Subscription {
   id: string
   bundleId: string
@@ -55,12 +63,14 @@ export interface Subscription {
   lastUsedAt: number
   lastUa: string
   createdAt: number
+  devices?: AccessStat[]
 }
 
 export interface SeriesPoint {
   at: number
   nodes: number
   alive: number
+  delay: number
 }
 
 export interface Stats {

@@ -34,7 +34,8 @@
 | `Bundle` | id, name, slug, rule_template_id, member_keys, group_by | 跨 host 的节点选集 + 分组策略 |
 | `Subscription` | id, bundle_id, token, target_format, enabled, last_used_at, ua | 一条对外 URL |
 | `RuleTemplate` | id, name, yaml_body | 通用段（proxy-groups / rules / dns 等） |
-| `Report` | host_id, at, node_count, alive_count | 上报历史，用于面板折线 |
+| `Report` | host_id, at, node_count, alive_count, avg_delay | 上报历史，面板延迟曲线 |
+| `SubAccess` | subscription_id, at, device, ua, ip | 拉取日志，7 天滚动；按设备折叠成「哪台设备在订阅」 |
 
 端点命名：`hostname/节点名`（如 `hk-01/HK-A`），冲突时追加 `#2`。订阅里保证全局唯一。
 
@@ -70,7 +71,7 @@
 细节：
 
 - 节点名统一加机器前缀（`host/节点`），同名不同机不会冲突；前缀也是排障时的第一线索。
-- 每次命中写 `last_used_at` 与 UA，面板展示「最近访问」。超出 30 条只保留聚合统计。
+- 每次命中写 `last_used_at`、UA、来源 IP，并落一条 `sub_access`（保留 7 天）。UA 归一成客户端名（Clash Verge / sing-box / Shadowrocket / mihomo…），面板按设备聚合展示次数与最近时间；不采集任何设备指纹。
 - token 为 32 字节随机，可吊销、可轮换。
 - 分组策略 `group_by`: `host`（按机器分组）、`type`（按协议）、`flat`（不分组），组行为取 `url-test` / `select` / `fallback` / `load-balance`。模板里的 `PROXY` 组填入分组入口，`AUTO` 组填入全部节点；模板缺少的分组由 weft 追加，模板其余段落与键顺序原样保留。
 - 健康检查：`proxy-groups` 里注入 `url-test` 组按 `delay` 排序，数据来自 agent 最近一次延迟测试。
@@ -100,7 +101,7 @@
 ## 8. 里程碑
 
 1. **M1（已完成）** — server + agent、上报与订阅出口、面板五页、规则模板、demo 模式、PWA。
-2. M2 — 面板触发延迟测试、节点按机器批量重命名、订阅访问统计图表。
+2. M2 — 面板触发延迟测试、节点按机器批量重命名、订阅访问统计图表（当前只有延迟折线与设备聚合）。
 3. M3 — 订阅访问统计图表、多用户、通知 webhook。
 
 ## 9. 开放问题

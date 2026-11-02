@@ -330,6 +330,14 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	for i := range subs {
+		devices, err := s.store.AccessStats(subs[i].ID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		subs[i].Devices = devices
+	}
 	series, err := s.store.RecentReports(now() - 6*3600)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -387,7 +395,7 @@ func bucketSeries(reports []Report) []map[string]any {
 	}
 	const bucket = 600
 	type point struct {
-		at, nodes, alive int64
+		at, nodes, alive, delayWeighted, delayCount int64
 	}
 	byHost := map[string]map[int64]*point{}
 	hosts := map[string]bool{}
@@ -403,6 +411,8 @@ func bucketSeries(reports []Report) []map[string]any {
 		}
 		p.nodes = int64(r.NodeCount)
 		p.alive = int64(r.AliveCount)
+		p.delayWeighted = int64(r.AvgDelay) * int64(r.AliveCount)
+		p.delayCount = int64(r.AliveCount)
 		hosts[r.HostID] = true
 	}
 	buckets := map[int64]*point{}
@@ -415,6 +425,8 @@ func bucketSeries(reports []Report) []map[string]any {
 			}
 			agg.nodes += p.nodes
 			agg.alive += p.alive
+			agg.delayWeighted += p.delayWeighted
+			agg.delayCount += p.delayCount
 		}
 	}
 	keys := make([]int64, 0, len(buckets))
@@ -425,7 +437,11 @@ func bucketSeries(reports []Report) []map[string]any {
 	out := make([]map[string]any, 0, len(keys))
 	for _, k := range keys {
 		b := buckets[k]
-		out = append(out, map[string]any{"at": k, "nodes": b.nodes, "alive": b.alive})
+		delay := int64(0)
+		if b.delayCount > 0 {
+			delay = b.delayWeighted / b.delayCount
+		}
+		out = append(out, map[string]any{"at": k, "nodes": b.nodes, "alive": b.alive, "delay": delay})
 	}
 	return out
 }
@@ -784,7 +800,8 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		target = sub.Format
 	}
 	ua := r.UserAgent()
-	s.store.RecordSubscriptionHit(sub.ID, ua)
+	s.store.RecordSubscriptionHit(sub.ID, DetectDevice(ua), ua,
+		ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")))
 	w.Header().Set("Profile-Update-Interval", "12")
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=0; expire=0"))
 	switch target {

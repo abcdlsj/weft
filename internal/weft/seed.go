@@ -3,6 +3,7 @@ package weft
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 )
@@ -24,6 +25,7 @@ func SeedDemo(st *Store) (*Bundle, error) {
 	types := []string{"ss", "trojan", "vmess", "vless", "hysteria2"}
 	var members []Member
 	var bundles []*Bundle
+	hostDelay := map[string]int{}
 	for hi, h := range hosts {
 		host, err := st.CreateHost(h.name)
 		if err != nil {
@@ -53,6 +55,16 @@ func SeedDemo(st *Store) (*Bundle, error) {
 		}
 		if err := st.ReplaceNodes(host.ID, nodes); err != nil {
 			return nil, err
+		}
+		sum, alive := 0, 0
+		for _, n := range nodes {
+			if n.Alive {
+				sum += n.DelayMS
+				alive++
+			}
+		}
+		if alive > 0 {
+			hostDelay[host.ID] = sum / alive
 		}
 		st.db.Exec(`UPDATE hosts SET last_seen=?,controller=?,agent_version=?,mihomo_version=? WHERE id=?`,
 			now(), "http://127.0.0.1:9090", AgentVersion, "v1.19.2", host.ID)
@@ -105,14 +117,43 @@ func SeedDemo(st *Store) (*Bundle, error) {
 		return nil, err
 	}
 
+	// Access log so the panel can show which devices actually pull each link.
+	access := []struct {
+		sub    string
+		device string
+		ua     string
+		ip     string
+		at     int64
+	}{
+		{subA.ID, "Clash Meta for Android", "ClashMetaForAndroid/2.11.1 (mihomo/1.19.2)", "10.0.0.24", now() - 420},
+		{subA.ID, "Clash Meta for Android", "ClashMetaForAndroid/2.11.1 (mihomo/1.19.2)", "10.0.0.24", now() - 5400},
+		{subA.ID, "Clash Verge", "clash-verge/v2.2.3", "10.0.0.31", now() - 9000},
+		{subA.ID, "Shadowrocket", "Shadowrocket/2.2.65 (iPhone17,2; iOS 18.4)", "10.0.0.57", now() - 46800},
+		{subB.ID, "sing-box", "sing-box/1.11.0 (darwin arm64)", "10.0.0.31", now() - 7200},
+		{subB.ID, "Stash", "Stash/2.5.2 (iPhone16,1; iOS 18.3)", "10.0.0.57", now() - 172800},
+	}
+	for _, a := range access {
+		st.db.Exec(`INSERT INTO sub_access (subscription_id,at,device,ua,ip) VALUES (?,?,?,?,?)`,
+			a.sub, a.at, a.device, a.ua, a.ip)
+	}
+
 	// Backfill six hours of reports so the overview chart has an honest shape.
 	hostRows, _ := st.ListHosts()
 	base := now() - 6*3600
 	for t := base; t < now(); t += 600 {
 		for i, h := range hostRows {
 			jitter := rand.Intn(3) - 1
-			st.db.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count) VALUES (?,?,?,?)`,
-				h.ID, t+int64(i*7), 12, 12+jitter)
+			alive := h.AliveCount + jitter
+			if alive < 0 {
+				alive = 0
+			}
+			if alive > h.NodeCount {
+				alive = h.NodeCount
+			}
+			// history follows the fleet's real average, drifting a little
+			delay := hostDelay[h.ID] + rand.Intn(9) - 4 + int(7*math.Sin(float64(t)/5400)+float64(i))
+			st.db.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count,avg_delay) VALUES (?,?,?,?,?)`,
+				h.ID, t, h.NodeCount, alive, delay)
 		}
 	}
 	return main, nil
@@ -175,8 +216,10 @@ WHERE alive=1 AND ABS(RANDOM()) % 3 = 0`)
 				lastReport = time.Now()
 				hosts, _ := st.ListHosts()
 				for _, h := range hosts {
-					st.db.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count) VALUES (?,?,?,?)`,
-						h.ID, now(), h.NodeCount, h.AliveCount)
+					var avg int
+					st.db.QueryRow(`SELECT COALESCE(AVG(delay_ms),0) FROM nodes WHERE host_id=? AND alive=1`, h.ID).Scan(&avg)
+					st.db.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count,avg_delay) VALUES (?,?,?,?,?)`,
+						h.ID, now(), h.NodeCount, h.AliveCount, avg)
 				}
 			}
 		}

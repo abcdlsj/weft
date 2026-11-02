@@ -75,7 +75,19 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
                   if (b.members.some((m) => m.hostId === n.hostId && m.key === n.key)) types.add(n.type)
                 }
                 return (
-                  <tr key={b.id} onClick={() => navigate(`/bundles/${b.id}`)}>
+                  <tr
+                    key={b.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`编辑 ${b.name}`}
+                    onClick={() => navigate(`/bundles/${b.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        navigate(`/bundles/${b.id}`)
+                      }
+                    }}
+                  >
                     <td data-label="编排">
                       <span className="cell-main">{b.name}</span>
                       <span className="cell-sub mono">/{b.slug}</span>

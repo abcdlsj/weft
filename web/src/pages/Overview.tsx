@@ -7,6 +7,7 @@ import type { PageProps } from '../App'
 export function Overview({ state, refresh, navigate }: PageProps) {
   const { stats, hosts, subscriptions, series } = state
   const lastReport = hosts.length ? Math.max(...hosts.map((h) => h.lastSeen)) : 0
+  const deviceCount = new Set(subscriptions.flatMap((s) => (s.devices ?? []).map((d) => d.device))).size
   const sortedHosts = useMemo(
     () => [...hosts].sort((a, b) => b.aliveCount / (b.nodeCount || 1) - a.aliveCount / (a.nodeCount || 1)),
     [hosts],
@@ -56,7 +57,9 @@ export function Overview({ state, refresh, navigate }: PageProps) {
         <div className="kpi__cell">
           <p className="label">订阅拉取</p>
           <p className="kpi__value">{stats.subHits}</p>
-          <p className="kpi__meta">累计 {subscriptions.length} 条链接</p>
+          <p className="kpi__meta">
+            {subscriptions.length} 条链接 · {deviceCount} 台设备
+          </p>
         </div>
         <div className="kpi__cell">
           <p className="label">最近上报</p>
@@ -65,16 +68,13 @@ export function Overview({ state, refresh, navigate }: PageProps) {
         </div>
       </section>
 
-      <div className="grid">
+      <div className="grid grid--overview">
         <section className="panel span-8">
           <header>
-            <h2>节点存活</h2>
+            <h2>平均延迟</h2>
             <span className="meta">
-              <b className="num">
-                {series.length ? series[series.length - 1].alive : 0} /{' '}
-                {series.length ? series[series.length - 1].nodes : 0}
-              </b>{' '}
-              可用 · 近 6 小时
+              <b className="num">{series.length ? series[series.length - 1].delay : 0} ms</b> · 近 6
+              小时
             </span>
           </header>
           <AliveChart series={series} />
@@ -90,19 +90,26 @@ export function Overview({ state, refresh, navigate }: PageProps) {
           {sortedHosts.length === 0 ? (
             <Empty title="还没有机器" body="接入第一台运行 mihomo 的主机后，这里会显示它的状态。" />
           ) : (
-            <ul className="hostlist">
-              {sortedHosts.slice(0, 4).map((h) => (
-                <li key={h.id}>
-                  <button className="hostlist__row" onClick={() => navigate('/hosts')}>
-                    <span className="hostlist__name">{h.name}</span>
-                    <span className="hostlist__meta">
-                      {h.aliveCount}/{h.nodeCount} 节点 · {ago(h.lastSeen)}
-                    </span>
-                    <StatusPill status={h.status} />
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="hostlist">
+                {sortedHosts.slice(0, 4).map((h) => (
+                  <li key={h.id}>
+                    <button className="hostlist__row" onClick={() => navigate('/hosts')}>
+                      <span className="hostlist__name">{h.name}</span>
+                      <span className="hostlist__meta">
+                        {h.aliveCount}/{h.nodeCount} 节点 · {ago(h.lastSeen)}
+                      </span>
+                      <StatusPill status={h.status} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="panel__foot">
+                <button className="card-link" onClick={() => navigate('/hosts')}>
+                  管理机器与接入命令
+                </button>
+              </div>
+            </>
           )}
         </section>
 
@@ -116,34 +123,52 @@ export function Overview({ state, refresh, navigate }: PageProps) {
           {subscriptions.length === 0 ? (
             <Empty title="没有订阅链接" body="从一条编排生成链接，客户端就能拉取聚合后的配置。" />
           ) : (
+            <>
             <table className="table table--subs">
               <thead>
                 <tr>
                   <th>名称</th>
-                  <th>编排</th>
+                  <th>设备</th>
                   <th className="num">拉取</th>
                   <th>最近</th>
                 </tr>
               </thead>
               <tbody>
-                {subscriptions.slice(0, 4).map((s) => (
-                  <tr key={s.id}>
-                    <td data-label="名称">
-                      <span className={s.enabled ? '' : 'muted'}>{s.label || '未命名'}</span>
-                    </td>
-                    <td data-label="编排" className="muted">
-                      {s.bundleName}
-                    </td>
-                    <td className="num" data-label="拉取">
-                      {s.hits}
-                    </td>
-                    <td data-label="最近" className="muted">
-                      {s.lastUsedAt ? ago(s.lastUsedAt) : '—'}
-                    </td>
-                  </tr>
-                ))}
+                {subscriptions.slice(0, 4).map((s) => {
+                  const top = (s.devices ?? [])[0]
+                  return (
+                    <tr key={s.id}>
+                      <td data-label="名称">
+                        <span className={s.enabled ? '' : 'muted'}>{s.label || '未命名'}</span>
+                        <span className="cell-sub">{s.bundleName}</span>
+                      </td>
+                      <td data-label="设备" className="muted">
+                        {top ? (
+                          <span className="device-inline">
+                            <Icon name="device" />
+                            {top.device}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="num" data-label="拉取">
+                        {s.hits}
+                      </td>
+                      <td data-label="最近" className="muted">
+                        {s.lastUsedAt ? ago(s.lastUsedAt) : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
+            <div className="panel__foot">
+              <button className="card-link" onClick={() => navigate('/subscriptions')}>
+                管理订阅与设备
+              </button>
+            </div>
+            </>
           )}
         </section>
 
@@ -159,10 +184,12 @@ export function Overview({ state, refresh, navigate }: PageProps) {
   --token <机器 token> \\
   --controller http://127.0.0.1:9090 \\
   --secret <mihomo secret>`}</pre>
-          <button className="btn btn--quiet" onClick={() => navigate('/hosts')}>
-            <Icon name="plus" />
-            生成 token 并复制完整命令
-          </button>
+          <div className="panel__foot">
+            <button className="btn btn--quiet" onClick={() => navigate('/hosts')}>
+              <Icon name="plus" />
+              生成 token 并复制完整命令
+            </button>
+          </div>
         </section>
       </div>
     </>
@@ -181,16 +208,17 @@ function AliveChart({ series }: { series: SeriesPoint[] }) {
   const H = 176
   const padX = 8
   const padY = 12
-  const max = Math.max(...series.map((p) => Math.max(p.nodes, p.alive)), 1)
+  const peak = Math.max(...series.map((p) => p.delay), 1)
+  const max = Math.ceil(peak / 25) * 25
   const stepX = (W - padX * 2) / (series.length - 1)
-  const y = (v: number) => H - padY - (v / max) * (H - padY * 2)
-  const line = series.map((p, i) => `${i === 0 ? 'M' : 'L'}${padX + i * stepX},${y(p.alive)}`).join(' ')
+  const y = (v: number) => H - padY - (Math.min(v, max) / max) * (H - padY * 2)
+  const line = series.map((p, i) => `${i === 0 ? 'M' : 'L'}${padX + i * stepX},${y(p.delay)}`).join(' ')
   const last = series[series.length - 1]
   const first = series[0]
 
   return (
     <figure className="chart">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="节点存活曲线">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="平均延迟曲线">
         {[0, 0.5, 1].map((f) => (
           <line
             key={f}
@@ -202,10 +230,11 @@ function AliveChart({ series }: { series: SeriesPoint[] }) {
           />
         ))}
         <path d={line} className="chart__line" vectorEffect="non-scaling-stroke" />
-        <circle cx={padX + (series.length - 1) * stepX} cy={y(last.alive)} r="3" className="chart__dot" />
+        <circle cx={padX + (series.length - 1) * stepX} cy={y(last.delay)} r="3" className="chart__dot" />
       </svg>
       <div className="chart__axis">
         <span>{clock(first.at)}</span>
+        <span className="chart__scale">0 – {max} ms</span>
         <span>{clock(last.at)}</span>
       </div>
     </figure>

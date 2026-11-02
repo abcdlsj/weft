@@ -105,9 +105,19 @@ export function Hosts({ state, refresh }: PageProps) {
                 return (
                   <tr
                     key={h.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`查看 ${h.name} 的详情`}
                     onClick={() => {
                       setSelectedID(h.id)
                       setFreshToken(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelectedID(h.id)
+                        setFreshToken(null)
+                      }
                     }}
                   >
                     <td data-label="机器">

@@ -18,15 +18,16 @@ Running mihomo on several machines usually means several subscription URLs, drif
 
 - **Agent-based host management** — each host runs `weft agent`, authenticates once, and pushes its mihomo proxy inventory outbound. No inbound ports, no SSH credentials, works behind NAT.
 - **One subscription URL per bundle** — pick nodes across hosts, get `/sub/<token>` in mihomo YAML, base64 or plain text. Tokens are revocable and track last use.
+- **See which device pulls what** — the User-Agent becomes a client name (Clash Verge, sing-box, Shadowrocket, mihomo …), grouped per link with hit count, IP and last seen.
 - **Rule templates** — keep the routing rules once, apply them to every bundle.
 - **Panel** — live host status and latency, node picker, bundle editor, subscription management. Mobile first, installable as a PWA, tuned for Safari.
 - **Demo mode** — `weft serve --demo` runs a fully populated instance with no agents.
 
 ![Overview](docs/screenshots/overview-light.jpg)
 
-| Bundles | Phone |
-| --- | --- |
-| ![Bundles](docs/screenshots/bundles-light.jpg) | <img src="docs/screenshots/overview-phone.jpg" width="320" alt="Phone overview"> |
+| Bundles | Subscriptions | Phone |
+| --- | --- | --- |
+| ![Bundles](docs/screenshots/bundles-light.jpg) | ![Subscriptions](docs/screenshots/subscriptions-light.jpg) | <img src="docs/screenshots/overview-phone.jpg" width="280" alt="Phone overview"> |
 
 ## Quick start
 

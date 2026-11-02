@@ -98,7 +98,26 @@ export function Subscriptions({ state, refresh }: PageProps) {
                     <span>编排 {s.bundleName}</span>
                     <span>拉取 {s.hits} 次</span>
                     <span>{s.lastUsedAt ? `最近 ${ago(s.lastUsedAt)}` : '还没被拉取过'}</span>
-                    {s.lastUa && <span className="mono truncate">{s.lastUa}</span>}
+                  </div>
+                  <div className="devices">
+                    {(s.devices ?? []).length === 0 ? (
+                      <span className="devices__empty">还没有设备拉取过这条链接</span>
+                    ) : (
+                      (s.devices ?? []).map((d) => (
+                        <span
+                          key={d.device}
+                          className="device"
+                          title={`${d.ua || d.device}
+IP ${d.ip} · 最近 ${ago(d.lastAt)} · 共 ${d.hits} 次`}
+                        >
+                          <Icon name="device" />
+                          <span className="device__name">{d.device}</span>
+                          <span className="device__meta">
+                            {d.hits} 次 · {ago(d.lastAt)}
+                          </span>
+                        </span>
+                      ))
+                    )}
                   </div>
                 </div>
                 <div className="subs__actions">

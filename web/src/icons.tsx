@@ -1,29 +1,123 @@
-import type { SVGProps } from 'react'
+import type { ReactElement, SVGProps } from 'react'
 
-const paths: Record<string, string> = {
-  overview: 'M3 3h6v6H3zM11 3h6v6h-6zM3 11h6v6H3zM11 11h6v6h-6z',
-  hosts: 'M3 4h14v5H3zM3 11h14v5H3zM5.5 6.5h.01M5.5 13.5h.01',
-  layers: 'M9 2.5 2.5 6 9 9.5 15.5 6zM2.5 10 9 13.5 15.5 10M2.5 13.5 9 17l6.5-3.5',
-  link: 'M7.5 10.5a3 3 0 0 0 4.2 0l2.1-2.1a3 3 0 0 0-4.2-4.2l-1 1M10.5 7.5a3 3 0 0 0-4.2 0l-2.1 2.1a3 3 0 0 0 4.2 4.2l1-1',
-  gear: 'M9 11.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM14.2 11a1.2 1.2 0 0 0 .2 1.3l.1.1a1.4 1.4 0 1 1-2 2l-.1-.1a1.2 1.2 0 0 0-2 .8v.3a1.4 1.4 0 1 1-2.8 0v-.2a1.2 1.2 0 0 0-2-.8l-.1.1a1.4 1.4 0 1 1-2-2l.1-.1a1.2 1.2 0 0 0-.8-2H3.4a1.4 1.4 0 1 1 0-2.8h.2a1.2 1.2 0 0 0 .8-2l-.1-.1a1.4 1.4 0 1 1 2-2l.1.1a1.2 1.2 0 0 0 2-.8V3a1.4 1.4 0 1 1 2.8 0v.2a1.2 1.2 0 0 0 2 .8l.1-.1a1.4 1.4 0 1 1 2 2l-.1.1a1.2 1.2 0 0 0 .8 2h.2a1.4 1.4 0 1 1 0 2.8h-.2a1.2 1.2 0 0 0-1.1.7z',
-  plus: 'M9 3.5v11M3.5 9h11',
-  check: 'M3.5 9.5 7 13l7.5-8',
-  copy: 'M6.5 6.5V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2.5M4.5 6.5h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z',
-  refresh: 'M15 9a6 6 0 1 1-1.8-4.3M15 3.5V6h-2.5',
-  close: 'M4 4l10 10M14 4 4 14',
-  chevron: 'M7 4l4 5-4 5',
-  trash: 'M3.5 5.5h11M7 5.5V4a.5.5 0 0 1 .5-.5h3A.5.5 0 0 1 11 4v1.5M5 5.5l.6 9a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9l.6-9',
-  key: 'M10.5 7.5a3 3 0 1 0-3.9 2.9L3 14v1.5h1.5V14H6v-1.5h1.5L9 11a3 3 0 0 0 1.5-3.5z',
-  search: 'M12.5 12.5 15 15M8 12.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z',
-  qr: 'M3.5 3.5h4v4h-4zM10.5 3.5h4v4h-4zM3.5 10.5h4v4h-4zM10.5 10.5h1.5v1.5h-1.5zM13 13h1.5v1.5H13z',
-  power: 'M9 2.5v6M13.5 5a6 6 0 1 1-9 0',
-  arrowUpRight: 'M5.5 12.5 13 5M7 5h6v6',
+/* One grid: 20×20, 1.5px stroke, round caps and joins, 2px of air inside the box.
+   Geometry is drawn by hand so every icon shares weight, corner and rhythm. */
+
+const shapes: Record<string, ReactElement> = {
+  overview: (
+    <>
+      <rect x="3" y="3" width="6" height="6" rx="1.6" />
+      <rect x="11" y="3" width="6" height="6" rx="1.6" />
+      <rect x="3" y="11" width="6" height="6" rx="1.6" />
+      <rect x="11" y="11" width="6" height="6" rx="1.6" />
+    </>
+  ),
+  hosts: (
+    <>
+      <rect x="2.75" y="3.5" width="14.5" height="5.5" rx="1.8" />
+      <rect x="2.75" y="11" width="14.5" height="5.5" rx="1.8" />
+      <circle cx="5.9" cy="6.25" r="0.85" fill="currentColor" stroke="none" />
+      <circle cx="5.9" cy="13.75" r="0.85" fill="currentColor" stroke="none" />
+      <path d="M13.4 6.25h1.6M13.4 13.75h1.6" />
+    </>
+  ),
+  layers: (
+    <>
+      <path d="M10 2.8 17.2 6.6 10 10.4 2.8 6.6z" />
+      <path d="M3.4 10.3 10 13.8l6.6-3.5" />
+      <path d="M3.4 13.9 10 17.4l6.6-3.5" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M8.6 11.4a3.1 3.1 0 0 0 4.4 0l2-2a3.1 3.1 0 0 0-4.4-4.4l-1.1 1.1" />
+      <path d="M11.4 8.6a3.1 3.1 0 0 0-4.4 0l-2 2a3.1 3.1 0 0 0 4.4 4.4l1.1-1.1" />
+    </>
+  ),
+  gear: (
+    <>
+      <path d="M3 5.75h4.2M11.2 5.75H17" />
+      <path d="M3 10h7.2M14.2 10H17" />
+      <path d="M3 14.25h2.4M9.4 14.25H17" />
+      <circle cx="9.2" cy="5.75" r="1.9" />
+      <circle cx="12.2" cy="10" r="1.9" />
+      <circle cx="7.4" cy="14.25" r="1.9" />
+    </>
+  ),
+  plus: <path d="M10 4.5v11M4.5 10h11" />,
+  check: <path d="M4 10.4 8 14.4l8-8.9" />,
+  copy: (
+    <>
+      <rect x="7.25" y="7.25" width="10" height="10" rx="2.2" />
+      <path d="M12.75 4.9v-.4A2.25 2.25 0 0 0 10.5 2.25h-6A2.25 2.25 0 0 0 2.25 4.5v6a2.25 2.25 0 0 0 2.25 2.25h.4" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M16.6 10a6.6 6.6 0 1 1-1.95-4.67" />
+      <path d="M16.9 3.6v3.9h-3.9" />
+    </>
+  ),
+  close: <path d="M5.2 5.2l9.6 9.6M14.8 5.2l-9.6 9.6" />,
+  chevron: <path d="M8.2 5.2 13 10l-4.8 4.8" />,
+  trash: (
+    <>
+      <path d="M3.6 5.9h12.8" />
+      <path d="M8.1 5.9V4.4a1.2 1.2 0 0 1 1.2-1.2h1.4a1.2 1.2 0 0 1 1.2 1.2v1.5" />
+      <path d="M5.4 5.9l.7 9.9a1.3 1.3 0 0 0 1.3 1.2h5.2a1.3 1.3 0 0 0 1.3-1.2l.7-9.9" />
+      <path d="M8.6 9v4.6M11.4 9v4.6" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="7.4" cy="7.4" r="3.5" />
+      <path d="M9.9 9.9 16.4 16.4M14.2 16.4h2.2v-2.2" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="8.9" cy="8.9" r="5.4" />
+      <path d="M12.9 12.9 16.6 16.6" />
+    </>
+  ),
+  qr: (
+    <>
+      <rect x="2.9" y="2.9" width="5.6" height="5.6" rx="1.2" />
+      <rect x="11.5" y="2.9" width="5.6" height="5.6" rx="1.2" />
+      <rect x="2.9" y="11.5" width="5.6" height="5.6" rx="1.2" />
+      <path d="M11.5 11.5h2.2v2.2h-2.2zM14.9 14.9h2.2v2.2h-2.2z" />
+    </>
+  ),
+  power: (
+    <>
+      <path d="M10 2.9v6.4" />
+      <path d="M14.9 5.4a6.6 6.6 0 1 1-9.8 0" />
+    </>
+  ),
+  device: (
+    <>
+      <rect x="4.2" y="2.9" width="11.6" height="14.2" rx="2.4" />
+      <path d="M8.6 14.6h2.8" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="10" cy="10" r="7" />
+      <path d="M10 6.2V10l2.8 1.9" />
+    </>
+  ),
+  arrowUpRight: <path d="M6.4 13.6 13.6 6.4M7.6 6.4h6v6" />,
 }
 
-export function Icon({ name, ...rest }: { name: keyof typeof paths | string } & SVGProps<SVGSVGElement>) {
+export type IconName = keyof typeof shapes
+
+export function Icon({
+  name,
+  ...rest
+}: { name: IconName | string } & SVGProps<SVGSVGElement>) {
   return (
     <svg
-      viewBox="0 0 18 18"
+      viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"
       strokeWidth={1.5}
@@ -32,17 +126,19 @@ export function Icon({ name, ...rest }: { name: keyof typeof paths | string } & 
       aria-hidden="true"
       {...rest}
     >
-      <path d={paths[name] ?? paths.overview} />
+      {shapes[name] ?? shapes.overview}
     </svg>
   )
 }
 
-/** The mark: three warp threads crossed by one weft thread. */
+/** The mark: three warp threads crossed by two weft threads. */
 export function Mark({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className="mark">
-      <path d="M6 3.5v17M12 3.5v17M18 3.5v17" stroke="currentColor" strokeWidth="1.4" opacity="0.45" />
-      <path d="M3 9h18M3 15h18" stroke="currentColor" strokeWidth="1.6" />
+    <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true" className="mark">
+      <path d="M5.6 3.2v13.6M10 3.2v13.6M14.4 3.2v13.6" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
+      <path d="M3 7.4h14M3 12.6h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
 }
+
+export { shapes as iconShapes }

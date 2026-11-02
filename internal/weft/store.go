@@ -95,13 +95,24 @@ CREATE TABLE IF NOT EXISTS reports (
   at INTEGER NOT NULL,
   node_count INTEGER NOT NULL,
   alive_count INTEGER NOT NULL,
+  avg_delay INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (host_id, at)
 );
+CREATE TABLE IF NOT EXISTS sub_access (
+  subscription_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  device TEXT NOT NULL,
+  ua TEXT NOT NULL DEFAULT '',
+  ip TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_sub_access ON sub_access (subscription_id, at DESC);
 CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
 );
 `)
+	// older databases predate the latency column; adding it is idempotent enough
+	s.db.Exec(`ALTER TABLE reports ADD COLUMN avg_delay INTEGER NOT NULL DEFAULT 0`)
 	return err
 }
 
@@ -240,7 +251,7 @@ func (s *Store) ReplaceNodes(hostID string, nodes []Node) error {
 		return err
 	}
 	ts := now()
-	alive := 0
+	alive, delaySum := 0, 0
 	for _, n := range nodes {
 		raw := n.Raw
 		if len(raw) == 0 {
@@ -253,10 +264,15 @@ VALUES (?,?,?,?,?,?,?,?,?,?)`, hostID, n.Key, n.Name, n.Type, n.Server, n.Port,
 		}
 		if n.Alive {
 			alive++
+			delaySum += n.DelayMS
 		}
 	}
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count) VALUES (?,?,?,?)`,
-		hostID, ts, len(nodes), alive); err != nil {
+	avgDelay := 0
+	if alive > 0 {
+		avgDelay = delaySum / alive
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count,avg_delay) VALUES (?,?,?,?,?)`,
+		hostID, ts, len(nodes), alive, avgDelay); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM reports WHERE host_id=? AND at < ?`, hostID, ts-86400); err != nil {
@@ -420,18 +436,27 @@ func (s *Store) DeleteBundle(id string) error {
 
 // ---------- subscriptions ----------
 
+type AccessStat struct {
+	Device string `json:"device"`
+	UA     string `json:"ua"`
+	IP     string `json:"ip"`
+	Hits   int    `json:"hits"`
+	LastAt int64  `json:"lastAt"`
+}
+
 type Subscription struct {
-	ID         string `json:"id"`
-	BundleID   string `json:"bundleId"`
-	BundleName string `json:"bundleName,omitempty"`
-	Label      string `json:"label"`
-	Token      string `json:"token"`
-	Format     string `json:"format"`
-	Enabled    bool   `json:"enabled"`
-	Hits       int64  `json:"hits"`
-	LastUsedAt int64  `json:"lastUsedAt"`
-	LastUA     string `json:"lastUa"`
-	CreatedAt  int64  `json:"createdAt"`
+	ID         string       `json:"id"`
+	BundleID   string       `json:"bundleId"`
+	BundleName string       `json:"bundleName,omitempty"`
+	Label      string       `json:"label"`
+	Token      string       `json:"token"`
+	Format     string       `json:"format"`
+	Enabled    bool         `json:"enabled"`
+	Hits       int64        `json:"hits"`
+	LastUsedAt int64        `json:"lastUsedAt"`
+	LastUA     string       `json:"lastUa"`
+	CreatedAt  int64        `json:"createdAt"`
+	Devices    []AccessStat `json:"devices,omitempty"`
 }
 
 func (s *Store) CreateSubscription(bundleID, label, format string) (*Subscription, error) {
@@ -519,12 +544,41 @@ func (s *Store) RotateSubscriptionToken(id string) (string, error) {
 }
 
 func (s *Store) DeleteSubscription(id string) error {
+	if _, err := s.db.Exec(`DELETE FROM sub_access WHERE subscription_id=?`, id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`DELETE FROM subscriptions WHERE id=?`, id)
 	return err
 }
 
-func (s *Store) RecordSubscriptionHit(id, ua string) {
-	s.db.Exec(`UPDATE subscriptions SET hits=hits+1,last_used_at=?,last_ua=? WHERE id=?`, now(), ua, id)
+// RecordSubscriptionHit updates the counters and keeps a short access log so
+// the panel can name the devices a link is actually used on.
+func (s *Store) RecordSubscriptionHit(id, device, ua, ip string) {
+	ts := now()
+	s.db.Exec(`UPDATE subscriptions SET hits=hits+1,last_used_at=?,last_ua=? WHERE id=?`, ts, ua, id)
+	s.db.Exec(`INSERT INTO sub_access (subscription_id,at,device,ua,ip) VALUES (?,?,?,?,?)`,
+		id, ts, device, ua, ip)
+	s.db.Exec(`DELETE FROM sub_access WHERE at < ?`, ts-7*86400)
+}
+
+// AccessStats folds the access log into one row per device, newest first.
+func (s *Store) AccessStats(subID string) ([]AccessStat, error) {
+	rows, err := s.db.Query(`
+SELECT device, MAX(ua), MAX(ip), COUNT(*), MAX(at)
+FROM sub_access WHERE subscription_id=? GROUP BY device ORDER BY MAX(at) DESC`, subID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AccessStat
+	for rows.Next() {
+		var a AccessStat
+		if err := rows.Scan(&a.Device, &a.UA, &a.IP, &a.Hits, &a.LastAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 // ---------- settings ----------
@@ -550,10 +604,11 @@ type Report struct {
 	At         int64  `json:"at"`
 	NodeCount  int    `json:"nodeCount"`
 	AliveCount int    `json:"aliveCount"`
+	AvgDelay   int    `json:"avgDelay"`
 }
 
 func (s *Store) RecentReports(since int64) ([]Report, error) {
-	rows, err := s.db.Query(`SELECT host_id,at,node_count,alive_count FROM reports WHERE at>=? ORDER BY at`, since)
+	rows, err := s.db.Query(`SELECT host_id,at,node_count,alive_count,avg_delay FROM reports WHERE at>=? ORDER BY at`, since)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +616,7 @@ func (s *Store) RecentReports(since int64) ([]Report, error) {
 	var out []Report
 	for rows.Next() {
 		var r Report
-		if err := rows.Scan(&r.HostID, &r.At, &r.NodeCount, &r.AliveCount); err != nil {
+		if err := rows.Scan(&r.HostID, &r.At, &r.NodeCount, &r.AliveCount, &r.AvgDelay); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
