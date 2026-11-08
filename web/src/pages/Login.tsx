@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { Mark } from '../icons'
 
@@ -11,6 +12,7 @@ export function Login({
   demo: boolean
   onDone: () => void
 }) {
+  const { t } = useTranslation()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -21,11 +23,11 @@ export function Login({
     setError(null)
     if (needsSetup) {
       if (password.length < 6) {
-        setError('口令至少 6 位')
+        setError(t('口令至少 6 位'))
         return
       }
       if (password !== confirm) {
-        setError('两次输入不一致')
+        setError(t('两次输入不一致'))
         return
       }
     }
@@ -49,11 +51,11 @@ export function Login({
           <strong>weft</strong>
         </div>
         <p className="auth__lede">
-          {needsSetup ? '先给面板设一个口令。' : '把多台 mihomo 织成一条订阅。'}
+          {needsSetup ? t('先给面板设一个口令。') : t('把多台 mihomo 织成一条订阅。')}
         </p>
 
         <label className="field">
-          <span>{needsSetup ? '设置口令' : '面板口令'}</span>
+          <span>{needsSetup ? t('设置口令') : t('面板口令')}</span>
           <input
             type="password"
             autoFocus
@@ -64,7 +66,7 @@ export function Login({
         </label>
         {needsSetup && (
           <label className="field">
-            <span>再次输入</span>
+            <span>{t('再次输入')}</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -75,9 +77,9 @@ export function Login({
         )}
         {error && <p className="form-error">{error}</p>}
         <button className="btn btn--primary btn--block" disabled={busy || !password}>
-          {needsSetup ? '完成初始化' : '进入面板'}
+          {needsSetup ? t('完成初始化') : t('进入面板')}
         </button>
-        {demo && <p className="auth__hint">演示实例口令：weft-demo</p>}
+        {demo && <p className="auth__hint">{t('演示实例口令：weft-demo')}</p>}
       </form>
     </div>
   )

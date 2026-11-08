@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api, type ProxyNode } from './api'
 import { Icon } from './icons'
 import { notify } from './ui'
@@ -179,6 +180,7 @@ export function NodeForm({
   onCancel: () => void
   busy?: boolean
 }) {
+  const { t } = useTranslation()
   const [proto, setProto] = useState<Protocol>(initial ?? 'hysteria2')
   const [values, setValues] = useState<Record<string, string>>(() =>
     initialValues(initialProxy, initial ?? 'hysteria2'),
@@ -197,7 +199,7 @@ export function NodeForm({
 
   async function submit() {
     if (missing.length) {
-      setError(`还需要填写：${missing.map((f) => f.label).join('、')}`)
+      setError(t('还需要填写：{{fields}}', { fields: missing.map((f) => t(f.label)).join(', ') }))
       return
     }
     setError(null)
@@ -234,7 +236,7 @@ export function NodeForm({
             </button>
           ))}
         </div>
-        <p className="node-form__blurb">{spec.blurb}</p>
+        <p className="node-form__blurb">{t(spec.blurb)}</p>
       </div>
 
       {groups.map((group, gi) => (
@@ -247,8 +249,8 @@ export function NodeForm({
                 className={`field${field.wide ? ' field--wide' : ''}${field.kind === 'switch' ? ' field--switch' : ''}`}
               >
                 <span>
-                  {field.label}
-                  {field.required && <i className="req">必填</i>}
+                  {t(field.label)}
+                  {field.required && <i className="req">{t('必填')}</i>}
                 </span>
                 {field.kind === 'switch' ? (
                   <button
@@ -256,7 +258,7 @@ export function NodeForm({
                     className="switch"
                     role="switch"
                     aria-checked={values[field.key] === 'true'}
-                    aria-label={field.label}
+                    aria-label={t(field.label)}
                     onClick={() =>
                       setValues((v) => ({ ...v, [field.key]: v[field.key] === 'true' ? 'false' : 'true' }))
                     }
@@ -270,7 +272,7 @@ export function NodeForm({
                   >
                     {field.options.map((opt) => (
                       <option key={opt} value={opt}>
-                        {opt || '不设置'}
+                        {opt || t('不设置')}
                       </option>
                     ))}
                   </select>
@@ -283,7 +285,7 @@ export function NodeForm({
                     onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
                   />
                 )}
-                {field.hint && <span className="field__hint">{field.hint}</span>}
+                {field.hint && <span className="field__hint">{t(field.hint)}</span>}
               </label>
             ))}
           </div>
@@ -294,10 +296,10 @@ export function NodeForm({
 
       <div className="row-actions">
         <button className="btn btn--primary" onClick={() => void submit()} disabled={busy}>
-          {busy ? '保存中…' : '保存节点'}
+          {busy ? t('保存中…') : t('保存节点')}
         </button>
         <button className="btn btn--quiet" onClick={onCancel}>
-          取消
+          {t('取消')}
         </button>
       </div>
     </div>
@@ -338,6 +340,7 @@ export function LinkImport({
   onDone: () => Promise<void> | void
   onCancel: () => void
 }) {
+  const { t } = useTranslation()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -360,11 +363,11 @@ export function LinkImport({
     try {
       const res = await api.createNode(hostId, { links })
       if (res.failed?.length) {
-        notify(`已导入 ${res.saved.length} 条，${res.failed.length} 条失败`)
+        notify(t('已导入 {{saved}} 条，{{failed}} 条失败', { saved: res.saved.length, failed: res.failed.length }))
         setError(res.failed.join('；'))
         await onDone()
       } else {
-        notify(`已导入 ${res.saved.length} 条节点`)
+        notify(t('已导入 {{n}} 条节点', { n: res.saved.length }))
         await onDone()
         onCancel()
       }
@@ -383,7 +386,7 @@ export function LinkImport({
         autoFocus
         spellCheck={false}
         value={text}
-        placeholder={'hy2://密码@1.2.3.4:36906?sni=www.bing.com&insecure=1#Berlin\nvless://uuid@1.2.3.4:8443?security=reality&...#Reality'}
+        placeholder={'hy2://password@1.2.3.4:36906?sni=www.bing.com&insecure=1#Berlin\nvless://uuid@1.2.3.4:8443?security=reality&...#Reality'}
         onChange={(e) => setText(e.target.value)}
       />
       {preview.length > 0 && (
@@ -391,7 +394,7 @@ export function LinkImport({
           {preview.map((row, i) => (
             <li key={`${row.link}-${i}`} data-ok={row.ok}>
               <span className="link-import__proto">{row.proto}</span>
-              <span className="link-import__name truncate">{row.name || '未命名'}</span>
+              <span className="link-import__name truncate">{row.name || t('未命名')}</span>
               <span className="link-import__where mono truncate">{row.where}</span>
             </li>
           ))}
@@ -400,10 +403,10 @@ export function LinkImport({
       {error && <p className="form-error">{error}</p>}
       <div className="row-actions">
         <button className="btn btn--primary" onClick={() => void submit()} disabled={busy || !usable}>
-          {busy ? '导入中…' : usable ? `导入 ${usable} 条` : '导入'}
+          {busy ? t('导入中…') : usable ? t('导入 {{n}} 条', { n: usable }) : t('导入')}
         </button>
         <button className="btn btn--quiet" onClick={onCancel}>
-          取消
+          {t('取消')}
         </button>
       </div>
     </div>
@@ -417,21 +420,22 @@ const SOURCE_LABEL: Record<string, string> = {
 }
 
 export function SourceTag({ source }: { source: string }) {
+  const { t } = useTranslation()
   return (
-    <span className={`source source--${source}`} title={sourceTitle(source)}>
-      {SOURCE_LABEL[source] ?? source}
+    <span className={`source source--${source}`} title={sourceTitle(source, t)}>
+      {t(SOURCE_LABEL[source] ?? source)}
     </span>
   )
 }
 
-function sourceTitle(source: string) {
+function sourceTitle(source: string, t: (s: string) => string) {
   switch (source) {
     case 'agent':
-      return '来自本机 mihomo 的实时上报'
+      return t('来自本机 mihomo 的实时上报')
     case 'config':
-      return '从机器上的 hysteria / xray 配置读出'
+      return t('从机器上的 hysteria / xray 配置读出')
     default:
-      return '在面板里手工填写'
+      return t('在面板里手工填写')
   }
 }
 
@@ -446,38 +450,39 @@ export function NodeTable({
   onDelete?: (node: ProxyNode) => void
   compact?: boolean
 }) {
+  const { t } = useTranslation()
   if (nodes.length === 0) {
-    return <p className="node-empty">还没有节点。粘贴链接，或手工填一条。</p>
+    return <p className="node-empty">{t('还没有节点。粘贴链接，或手工填一条。')}</p>
   }
   return (
     <table className={`table table--nodes${compact ? ' table--compact' : ''}`}>
       <thead>
         <tr>
-          <th>节点</th>
-          <th>协议</th>
-          <th>地址</th>
-          <th>来源</th>
-          <th className="num">延迟</th>
-          {(onEdit || onDelete) && <th aria-label="操作" />}
+          <th>{t('节点')}</th>
+          <th>{t('协议')}</th>
+          <th>{t('地址')}</th>
+          <th>{t('来源')}</th>
+          <th className="num">{t('延迟')}</th>
+          {(onEdit || onDelete) && <th aria-label={t('操作')} />}
         </tr>
       </thead>
       <tbody>
         {nodes.map((node) => (
           <tr key={node.key}>
-            <td data-label="节点">
+            <td data-label={t('节点')}>
               <span className="node-name truncate">{node.name}</span>
             </td>
-            <td data-label="协议" className="mono muted">
+            <td data-label={t('协议')} className="mono muted">
               {node.type}
             </td>
-            <td data-label="地址" className="mono muted truncate">
+            <td data-label={t('地址')} className="mono muted truncate">
               {node.server}:{node.port}
             </td>
-            <td data-label="来源">
+            <td data-label={t('来源')}>
               <SourceTag source={node.source} />
             </td>
-            <td className="num" data-label="延迟">
-              {node.alive ? (node.delayMs ? `${node.delayMs} ms` : '—') : <span className="muted">不可用</span>}
+            <td className="num" data-label={t('延迟')}>
+              {node.alive ? (node.delayMs ? `${node.delayMs} ms` : '—') : <span className="muted">{t('不可用')}</span>}
             </td>
             {(onEdit || onDelete) && (
               <td className="cell-action">
@@ -486,7 +491,7 @@ export function NodeTable({
                     {onEdit && (
                       <button
                         className="icon-btn icon-btn--sm"
-                        aria-label={`编辑 ${node.name}`}
+                        aria-label={t('编辑 {{name}}', { name: node.name })}
                         onClick={() => onEdit(node)}
                       >
                         <Icon name="gear" />
@@ -495,7 +500,7 @@ export function NodeTable({
                     {onDelete && (
                       <button
                         className="icon-btn icon-btn--sm"
-                        aria-label={`删除 ${node.name}`}
+                        aria-label={t('删除 {{name}}', { name: node.name })}
                         onClick={() => onDelete(node)}
                       >
                         <Icon name="trash" />
@@ -503,8 +508,8 @@ export function NodeTable({
                     )}
                   </span>
                 ) : (
-                  <span className="muted node-readonly" title="自动采集，不能在这里改">
-                    自动
+                  <span className="muted node-readonly" title={t('自动采集，不能在这里改')}>
+                    {t('自动')}
                   </span>
                 )}
               </td>

@@ -57,9 +57,19 @@ func newSubFixture(t *testing.T) subFixture {
 
 func (f subFixture) get(t *testing.T, url string) (int, string) {
 	t.Helper()
+	code, body, _ := f.request(t, url, "")
+	return code, body
+}
+
+func (f subFixture) request(t *testing.T, url, bearer string) (int, string, http.Header) {
+	t.Helper()
 	rec := httptest.NewRecorder()
-	f.server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
-	return rec.Code, rec.Body.String()
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	f.server.Handler().ServeHTTP(rec, req)
+	return rec.Code, rec.Body.String(), rec.Header()
 }
 
 func TestSubscriptionNeedsTheKey(t *testing.T) {
@@ -110,5 +120,43 @@ func TestRotateRetiresBothHalves(t *testing.T) {
 	}
 	if code, _ := f.get(t, "/sub/"+token+"?key="+key); code != http.StatusOK {
 		t.Fatalf("new link should work, got %d", code)
+	}
+}
+
+func TestSubscriptionAcceptsBearerToken(t *testing.T) {
+	f := newSubFixture(t)
+	code, body, _ := f.request(t, "/sub/"+f.sub.Token, f.sub.Bearer)
+	if code != http.StatusOK {
+		t.Fatalf("bearer should authorize, got %d: %s", code, body)
+	}
+	if code, _, _ := f.request(t, "/sub/"+f.sub.Token, "wrong"); code != http.StatusForbidden {
+		t.Fatalf("wrong bearer should be forbidden, got %d", code)
+	}
+	// lower-case scheme is still the same auth scheme
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/sub/"+f.sub.Token, nil)
+	req.Header.Set("Authorization", "bearer "+f.sub.Bearer)
+	f.server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lowercase bearer scheme should work, got %d", rec.Code)
+	}
+}
+
+func TestSubscriptionNamesTheProfileAndReportsHugeQuota(t *testing.T) {
+	f := newSubFixture(t)
+	code, _, h := f.request(t, "/sub/"+f.sub.Token+"?key="+f.sub.AccessKey, "")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	cd := h.Get("Content-Disposition")
+	if !strings.Contains(cd, `filename="`) || !strings.Contains(cd, "filename*=UTF-8''") {
+		t.Fatalf("missing profile name in Content-Disposition: %q", cd)
+	}
+	if !strings.Contains(cd, "%E4%B8%BB%E5%8A%9B") {
+		t.Fatalf("subscription label was not encoded: %q", cd)
+	}
+	info := h.Get("Subscription-Userinfo")
+	if !strings.Contains(info, "total=109951162777600") || !strings.Contains(info, "expire=0") {
+		t.Fatalf("unexpected Subscription-Userinfo: %q", info)
 	}
 }

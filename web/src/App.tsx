@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api, type FleetState, type Me } from './api'
 import { Mark, Icon } from './icons'
 import { Toaster, notify } from './ui'
@@ -9,6 +10,7 @@ import { Bundles } from './pages/Bundles'
 import { BundleEditor } from './pages/BundleEditor'
 import { Subscriptions } from './pages/Subscriptions'
 import { Settings } from './pages/Settings'
+import { Rules } from './pages/Rules'
 
 export interface PageProps {
   state: FleetState
@@ -25,6 +27,7 @@ const nav = [
   { path: '/hosts', label: '机器', icon: 'hosts' },
   { path: '/bundles', label: '编排', icon: 'layers' },
   { path: '/subscriptions', label: '订阅', icon: 'link' },
+  { path: '/rules', label: '规则', icon: 'rules' },
   { path: '/settings', label: '设置', icon: 'gear' },
 ]
 
@@ -46,6 +49,7 @@ function usePath() {
 }
 
 export default function App() {
+  const { t } = useTranslation()
   const [me, setMe] = useState<Me | null>(null)
   const [state, setState] = useState<FleetState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -111,10 +115,10 @@ export default function App() {
     return (
       <div className="boot">
         <Mark size={26} />
-        <p>{error ?? '正在读取集群状态'}</p>
+        <p>{error ?? t('正在读取集群状态')}</p>
         {error && (
           <button className="btn btn--quiet" onClick={() => void refresh()}>
-            重试
+            {t('重试')}
           </button>
         )}
       </div>
@@ -132,7 +136,7 @@ export default function App() {
           <span className="brand__text">
             <strong>weft</strong>
             <span className="brand__scope">
-              {state.demo ? '演示实例' : `${online} 台在线`}
+              {state.demo ? t('演示实例') : t('{{n}} 台在线', { n: online })}
             </span>
           </span>
         </a>
@@ -153,7 +157,7 @@ export default function App() {
                 }}
               >
                 <Icon name={item.icon} />
-                {item.label}
+                {t(item.label)}
                 {item.path === '/hosts' && state.stats.hostsOnline < state.stats.hostsTotal && (
                   <span className="nav-count">{state.stats.hostsTotal - state.stats.hostsOnline}</span>
                 )}
@@ -165,7 +169,7 @@ export default function App() {
         <div className="sidebar__foot">
           <div className="sidebar__status">
             <span className="dot" data-status={state.stats.hostsOnline > 0 ? 'online' : 'offline'} />
-            最近上报 {state.hosts.length ? agoShort(Math.max(...state.hosts.map((h) => h.lastSeen))) : '—'}
+            {t('最近上报')} {state.hosts.length ? agoShort(Math.max(...state.hosts.map((h) => h.lastSeen))) : '—'}
           </div>
           <button
             className="btn btn--quiet btn--sm"
@@ -174,7 +178,7 @@ export default function App() {
             }}
           >
             <Icon name="power" />
-            结束会话
+            {t('结束会话')}
           </button>
         </div>
       </aside>
@@ -197,7 +201,7 @@ export default function App() {
               }}
             >
               <Icon name={item.icon} />
-              <span>{item.label}</span>
+              <span>{t(item.label)}</span>
             </a>
           )
         })}
@@ -214,6 +218,7 @@ function renderPage(path: string, props: PageProps) {
   if (path.startsWith('/bundles/')) return <BundleEditor {...props} id={path.slice('/bundles/'.length)} />
   if (path === '/bundles') return <Bundles {...props} />
   if (path === '/subscriptions') return <Subscriptions {...props} />
+  if (path === '/rules') return <Rules {...props} />
   if (path === '/settings') return <Settings {...props} />
   return <Overview {...props} />
 }

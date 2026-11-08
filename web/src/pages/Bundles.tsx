@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { ago, api } from '../api'
 import { WeaveStrip } from '../weave'
 import { Icon } from '../icons'
@@ -11,11 +12,14 @@ const groupByLabel: Record<string, string> = {
 }
 
 export function Bundles({ state, refresh, navigate }: PageProps) {
+  const { t } = useTranslation()
   async function remove(id: string, name: string, subs: number) {
-    const extra = subs ? `\n同时会保留 ${subs} 条订阅链接，但它们会拉不到配置。` : ''
-    if (!confirm(`删除编排「${name}」？${extra}`)) return
+    const extra = subs
+      ? t('同时会保留 {{n}} 条订阅链接，但它们会拉不到配置。', { n: subs })
+      : ''
+    if (!confirm(t('删除编排「{{name}}」？{{extra}}', { name, extra }))) return
     await api.deleteBundle(id)
-    notify('编排已删除')
+    notify(t('编排已删除'))
     await refresh()
   }
 
@@ -23,13 +27,13 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
     <>
       <div className="title-row">
         <div>
-          <h1>编排</h1>
-          <p className="sub">从所有机器里挑节点，决定怎么分组，输出成一条订阅。</p>
+          <h1>{t('编排')}</h1>
+          <p className="sub">{t('从所有机器里挑节点，决定怎么分组，输出成一条订阅。')}</p>
         </div>
         <div className="title-actions">
           <button className="btn btn--primary" onClick={() => navigate('/bundles/new')}>
             <Icon name="plus" />
-            新建编排
+            {t('新建编排')}
           </button>
         </div>
       </div>
@@ -37,11 +41,11 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
       <section className="panel">
         {state.bundles.length === 0 ? (
           <Empty
-            title="还没有编排"
-            body="编排是节点选集：选择节点、分组方式，然后生成订阅链接。"
+            title={t('还没有编排')}
+            body={t('编排是节点选集：选择节点、分组方式，然后生成订阅链接。')}
             action={
               <button className="btn btn--primary" onClick={() => navigate('/bundles/new')}>
-                新建编排
+                {t('新建编排')}
               </button>
             }
           />
@@ -49,14 +53,15 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
           <table className="table table--click">
             <thead>
               <tr>
-                <th>编排</th>
-                <th>构成</th>
-                <th>分组</th>
-                <th>协议</th>
-                <th className="num">节点</th>
-                <th className="num">订阅</th>
-                <th className="num">创建</th>
-                <th aria-label="操作" />
+                <th>{t('编排')}</th>
+                <th>{t('构成')}</th>
+                <th>{t('分组')}</th>
+                <th>{t('规则')}</th>
+                <th>{t('协议')}</th>
+                <th className="num">{t('节点')}</th>
+                <th className="num">{t('订阅')}</th>
+                <th className="num">{t('创建')}</th>
+                <th aria-label={t('操作')} />
               </tr>
             </thead>
             <tbody>
@@ -79,7 +84,7 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
                     key={b.id}
                     tabIndex={0}
                     role="button"
-                    aria-label={`编辑 ${b.name}`}
+                    aria-label={t('编辑 {{name}}', { name: b.name })}
                     onClick={() => navigate(`/bundles/${b.id}`)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -88,17 +93,20 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
                       }
                     }}
                   >
-                    <td data-label="编排">
+                    <td data-label={t('编排')}>
                       <span className="cell-main">{b.name}</span>
                       <span className="cell-sub mono">/{b.slug}</span>
                     </td>
-                    <td data-label="构成">
+                    <td data-label={t('构成')}>
                       <WeaveStrip segments={segments} />
                     </td>
-                    <td data-label="分组" className="muted">
-                      {groupByLabel[b.groupBy] ?? b.groupBy} · {b.groupType}
+                    <td data-label={t('分组')} className="muted">
+                      {t(groupByLabel[b.groupBy] ?? b.groupBy)} · {b.groupType}
                     </td>
-                    <td data-label="协议">
+                    <td data-label={t('规则')} className="muted">
+                      {state.ruleSets.find((r) => r.id === b.ruleSetId)?.name ?? '—'}
+                    </td>
+                    <td data-label={t('协议')}>
                       <span className="chips">
                         {[...types].sort().map((t) => (
                           <span key={t} className="chip mono">
@@ -108,19 +116,19 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
                         {types.size === 0 && <span className="muted">—</span>}
                       </span>
                     </td>
-                    <td className="num" data-label="节点">
+                    <td className="num" data-label={t('节点')}>
                       {b.members.length}
                     </td>
-                    <td className="num" data-label="订阅">
+                    <td className="num" data-label={t('订阅')}>
                       {subs}
                     </td>
-                    <td className="num muted" data-label="创建">
+                    <td className="num muted" data-label={t('创建')}>
                       {ago(b.createdAt)}
                     </td>
                     <td className="cell-action">
                       <button
                         className="icon-btn"
-                        aria-label="删除编排"
+                        aria-label={t('删除编排')}
                         onClick={(e) => {
                           e.stopPropagation()
                           void remove(b.id, b.name, subs)
@@ -139,27 +147,27 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
 
       <section className="panel panel--note">
         <header>
-          <h2>分组方式怎么选</h2>
-          <span className="meta">一条编排可以被多条订阅引用</span>
+          <h2>{t('分组方式怎么选')}</h2>
+          <span className="meta">{t('一条编排可以被多条订阅引用')}</span>
         </header>
         <div className="panel-split">
           <ul className="facts facts--defs">
             <li>
-              <span>按机器</span>
-              <span>每台一个组，切换最直观；单机下线只影响一个组。</span>
+              <span>{t('按机器')}</span>
+              <span>{t('每台一个组，切换最直观；单机下线只影响一个组。')}</span>
             </li>
             <li>
-              <span>按协议</span>
-              <span>同协议聚合，便于比较传输差异。</span>
+              <span>{t('按协议')}</span>
+              <span>{t('同协议聚合，便于比较传输差异。')}</span>
             </li>
             <li>
-              <span>不分组</span>
-              <span>节点平铺，交给客户端分组。</span>
+              <span>{t('不分组')}</span>
+              <span>{t('节点平铺，交给客户端分组。')}</span>
             </li>
           </ul>
           <p className="prose">
-            组行为取 <span className="mono">url-test</span> 自动测速、<span className="mono">select</span>{' '}
-            手动切换。改完保存，客户端下次拉取即生效。
+            {t('组行为取')} <span className="mono">url-test</span> {t('自动测速、')}{' '}
+            <span className="mono">select</span> {t('手动切换。改完保存，客户端下次拉取即生效。')}
           </p>
         </div>
       </section>

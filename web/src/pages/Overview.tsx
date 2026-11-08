@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ago, clock, type ProxyNode, type SeriesPoint } from '../api'
 import { NodeThreads } from '../weave'
 import { Icon } from '../icons'
@@ -6,6 +7,7 @@ import { Copy, Empty, StatusPill } from '../ui'
 import type { PageProps } from '../App'
 
 export function Overview({ state, refresh, navigate }: PageProps) {
+  const { t } = useTranslation()
   const { stats, hosts, subscriptions, series } = state
   const lastReport = hosts.length ? Math.max(...hosts.map((h) => h.lastSeen)) : 0
   const deviceCount = new Set(subscriptions.flatMap((s) => (s.devices ?? []).map((d) => d.device))).size
@@ -19,60 +21,60 @@ export function Overview({ state, refresh, navigate }: PageProps) {
     for (const n of state.nodes) m.set(n.hostId, [...(m.get(n.hostId) ?? []), n])
     return m
   }, [state.nodes])
-  const agentCmd = `weft agent --server ${state.publicBase} --token <机器 token> --controller http://127.0.0.1:9090 --secret <mihomo secret>`
+  const agentCmd = `weft agent --server ${state.publicBase} --token <host token> --controller http://127.0.0.1:9090 --secret <mihomo secret>`
 
   return (
     <>
       <div className="title-row">
         <div>
-          <h1>概览</h1>
+          <h1>{t('概览')}</h1>
           <p className="sub">
-            {stats.hostsOnline} 台在线 · {stats.nodesAlive} 个节点可用
-            {state.demo && <span className="tag">演示数据</span>}
+            {t('{{online}} 台在线 · {{alive}} 个节点可用', { online: stats.hostsOnline, alive: stats.nodesAlive })}
+            {state.demo && <span className="tag">{t('演示数据')}</span>}
           </p>
         </div>
         <div className="title-actions">
           <button className="btn btn--quiet" onClick={() => void refresh()}>
             <Icon name="refresh" />
-            刷新
+            {t('刷新')}
           </button>
           <button className="btn btn--primary" onClick={() => navigate('/bundles/new')}>
             <Icon name="plus" />
-            新建编排
+            {t('新建编排')}
           </button>
         </div>
       </div>
 
       <section className="panel kpi">
         <div className="kpi__cell">
-          <p className="label">在线机器</p>
+          <p className="label">{t('在线机器')}</p>
           <p className="kpi__value">
             {stats.hostsOnline}
             <span className="kpi__unit">/ {stats.hostsTotal}</span>
           </p>
-          <p className="kpi__meta">{stats.hostsOnline === stats.hostsTotal ? '全部已上报' : '有机器未上报'}</p>
+          <p className="kpi__meta">{stats.hostsOnline === stats.hostsTotal ? t('全部已上报') : t('有机器未上报')}</p>
         </div>
         <div className="kpi__cell">
-          <p className="label">可用节点</p>
+          <p className="label">{t('可用节点')}</p>
           <p className="kpi__value">
             {stats.nodesAlive}
             <span className="kpi__unit">/ {stats.nodesTotal}</span>
           </p>
           <p className="kpi__meta">
-            存活率 {stats.nodesTotal ? Math.round((stats.nodesAlive / stats.nodesTotal) * 100) : 0}%
+            {t('存活率 {{pct}}%', { pct: stats.nodesTotal ? Math.round((stats.nodesAlive / stats.nodesTotal) * 100) : 0 })}
           </p>
         </div>
         <div className="kpi__cell">
-          <p className="label">订阅拉取</p>
+          <p className="label">{t('订阅拉取')}</p>
           <p className="kpi__value">{stats.subHits}</p>
           <p className="kpi__meta">
-            {subscriptions.length} 条链接 · {deviceCount} 台设备
+            {t('{{links}} 条链接 · {{devices}} 台设备', { links: subscriptions.length, devices: deviceCount })}
           </p>
         </div>
         <div className="kpi__cell">
-          <p className="label">最近上报</p>
+          <p className="label">{t('最近上报')}</p>
           <p className="kpi__value kpi__value--sm">{ago(lastReport)}</p>
-          <p className="kpi__meta">agent 每 15 秒同步一次</p>
+          <p className="kpi__meta">{t('agent 每 15 秒同步一次')}</p>
         </div>
       </section>
 
@@ -81,13 +83,13 @@ export function Overview({ state, refresh, navigate }: PageProps) {
 
         <section className="panel span-4">
           <header>
-            <h2>机器</h2>
+            <h2>{t('机器')}</h2>
             <button className="card-link" onClick={() => navigate('/hosts')}>
-              全部
+              {t('全部')}
             </button>
           </header>
           {sortedHosts.length === 0 ? (
-            <Empty title="还没有机器" body="接入第一台运行 mihomo 的主机后，这里会显示它的状态。" />
+            <Empty title={t('还没有机器')} body={t('接入第一台运行 mihomo 的主机后，这里会显示它的状态。')} />
           ) : (
             <>
               <ul className="hostlist">
@@ -96,7 +98,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
                     <button className="hostlist__row" onClick={() => navigate('/hosts')}>
                       <span className="hostlist__name">{h.name}</span>
                       <span className="hostlist__meta">
-                        {h.aliveCount}/{h.nodeCount} 节点 · {ago(h.lastSeen)}
+                        {t('{{alive}}/{{total}} 节点 · {{ago}}', { alive: h.aliveCount, total: h.nodeCount, ago: ago(h.lastSeen) })}
                       </span>
                       <StatusPill status={h.status} />
                       <span className="hostlist__threads">
@@ -108,7 +110,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
               </ul>
               <div className="panel__foot">
                 <button className="card-link" onClick={() => navigate('/hosts')}>
-                  管理机器与接入命令
+                  {t('管理机器与接入命令')}
                 </button>
               </div>
             </>
@@ -117,22 +119,22 @@ export function Overview({ state, refresh, navigate }: PageProps) {
 
         <section className="panel span-7">
           <header>
-            <h2>订阅</h2>
+            <h2>{t('订阅')}</h2>
             <button className="card-link" onClick={() => navigate('/subscriptions')}>
-              管理
+              {t('管理')}
             </button>
           </header>
           {subscriptions.length === 0 ? (
-            <Empty title="没有订阅链接" body="从一条编排生成链接，客户端就能拉取聚合后的配置。" />
+            <Empty title={t('没有订阅链接')} body={t('从一条编排生成链接，客户端就能拉取聚合后的配置。')} />
           ) : (
             <>
             <table className="table table--subs">
               <thead>
                 <tr>
-                  <th>名称</th>
-                  <th>设备</th>
-                  <th className="num">拉取</th>
-                  <th>最近</th>
+                  <th>{t('名称')}</th>
+                  <th>{t('设备')}</th>
+                  <th className="num">{t('拉取')}</th>
+                  <th>{t('最近')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,11 +142,11 @@ export function Overview({ state, refresh, navigate }: PageProps) {
                   const top = (s.devices ?? [])[0]
                   return (
                     <tr key={s.id}>
-                      <td data-label="名称">
-                        <span className={s.enabled ? '' : 'muted'}>{s.label || '未命名'}</span>
+                      <td data-label={t('名称')}>
+                        <span className={s.enabled ? '' : 'muted'}>{s.label || t('未命名')}</span>
                         <span className="cell-sub">{s.bundleName}</span>
                       </td>
-                      <td data-label="设备" className="muted">
+                      <td data-label={t('设备')} className="muted">
                         {top ? (
                           <span className="device-inline">
                             <Icon name="device" />
@@ -154,10 +156,10 @@ export function Overview({ state, refresh, navigate }: PageProps) {
                           '—'
                         )}
                       </td>
-                      <td className="num" data-label="拉取">
+                      <td className="num" data-label={t('拉取')}>
                         {s.hits}
                       </td>
-                      <td data-label="最近" className="muted">
+                      <td data-label={t('最近')} className="muted">
                         {s.lastUsedAt ? ago(s.lastUsedAt) : '—'}
                       </td>
                     </tr>
@@ -167,7 +169,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
             </table>
             <div className="panel__foot">
               <button className="card-link" onClick={() => navigate('/subscriptions')}>
-                管理订阅与设备
+                {t('管理订阅与设备')}
               </button>
             </div>
             </>
@@ -178,13 +180,13 @@ export function Overview({ state, refresh, navigate }: PageProps) {
       </div>
 
       <section className="panel connect-strip">
-        <h2>接入下一台机器</h2>
+        <h2>{t('接入下一台机器')}</h2>
         <code className="mono connect-strip__cmd">{agentCmd}</code>
         <div className="connect-strip__actions">
-          <Copy value={agentCmd} label="复制模板" />
+          <Copy value={agentCmd} label={t('复制模板')} />
           <button className="btn btn--quiet btn--sm" onClick={() => navigate('/hosts')}>
             <Icon name="plus" />
-            生成 token
+            {t('生成 token')}
           </button>
         </div>
       </section>
@@ -202,13 +204,14 @@ function niceStep(span: number, ticks: number) {
 }
 
 function TrendPanel({ series: all }: { series: SeriesPoint[] }) {
+  const { t } = useTranslation()
   const [metric, setMetric] = useState<Metric>('delay')
   // a report with no live node has no delay to average; drop it rather than draw a zero
   const series = metric === 'delay' ? all.filter((p) => p.delay > 0) : all
   const last = series[series.length - 1]
   const first = series[0]
   const value = (p: SeriesPoint) => (metric === 'delay' ? p.delay : p.alive)
-  const unit = metric === 'delay' ? 'ms' : '个'
+  const unit = metric === 'delay' ? 'ms' : t('个')
   const change = last && first ? value(last) - value(first) : 0
   // delay is better when it falls, alive nodes when they rise
   const good = metric === 'delay' ? change < 0 : change > 0
@@ -217,7 +220,7 @@ function TrendPanel({ series: all }: { series: SeriesPoint[] }) {
     <section className="panel span-8 trend">
       <header>
         <div className="trend__head">
-          <h2>{metric === 'delay' ? '平均延迟' : '可用节点'}</h2>
+          <h2>{metric === 'delay' ? t('平均延迟') : t('可用节点')}</h2>
           {last && (
             <p className="trend__now">
               <span className="trend__value num">{value(last)}</span>
@@ -228,16 +231,16 @@ function TrendPanel({ series: all }: { series: SeriesPoint[] }) {
                   {Math.abs(change)} {unit}
                 </span>
               )}
-              <span className="trend__window">较 6 小时前</span>
+              <span className="trend__window">{t('较 6 小时前')}</span>
             </p>
           )}
         </div>
-        <div className="segmented segmented--sm" role="group" aria-label="指标">
+        <div className="segmented segmented--sm" role="group" aria-label={t('指标')}>
           <button aria-pressed={metric === 'delay'} onClick={() => setMetric('delay')}>
-            延迟
+            {t('延迟')}
           </button>
           <button aria-pressed={metric === 'alive'} onClick={() => setMetric('alive')}>
-            可用节点
+            {t('可用节点')}
           </button>
         </div>
       </header>
@@ -257,6 +260,7 @@ function LineChart({
   unit: string
   metric: Metric
 }) {
+  const { t } = useTranslation()
   const [hover, setHover] = useState<number | null>(null)
   const box = useRef<HTMLElement>(null)
   const [W, setW] = useState(760)
@@ -270,7 +274,7 @@ function LineChart({
   if (series.length < 2) {
     return (
       <div className="chart chart--empty">
-        <p className="empty__body">还没有足够的上报数据</p>
+        <p className="empty__body">{t('还没有足够的上报数据')}</p>
       </div>
     )
   }
@@ -312,7 +316,7 @@ function LineChart({
         height={H}
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`${metric === 'delay' ? '平均延迟' : '可用节点'}曲线`}
+        aria-label={t('{{metric}}曲线', { metric: metric === 'delay' ? t('平均延迟') : t('可用节点') })}
         onMouseLeave={() => setHover(null)}
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect()
@@ -333,7 +337,7 @@ function LineChart({
           <g>
             <line x1={left} x2={W - right} y1={y(capacity)} y2={y(capacity)} className="chart__ref" />
             <text x={W - right} y={y(capacity) - 6} className="chart__tick" textAnchor="end">
-              总计 {capacity}
+              {t('总计 {{n}}', { n: capacity })}
             </text>
           </g>
         )}
@@ -377,15 +381,16 @@ function LineChart({
 const BIN = 50
 
 function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
+  const { t } = useTranslation()
   const alive = nodes.filter((n) => n.alive).map((n) => n.delayMs).sort((a, b) => a - b)
   const down = nodes.length - alive.length
   if (nodes.length === 0) {
     return (
       <section className="panel span-5">
         <header>
-          <h2>延迟分布</h2>
+          <h2>{t('延迟分布')}</h2>
         </header>
-        <Empty title="还没有节点" body="机器上报后，这里按 50 ms 分档显示节点延迟。" />
+        <Empty title={t('还没有节点')} body={t('机器上报后，这里按 50 ms 分档显示节点延迟。')} />
       </section>
     )
   }
@@ -401,12 +406,12 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
   return (
     <section className="panel span-5">
       <header>
-        <h2>延迟分布</h2>
-        <span className="meta">{alive.length} 个可用节点 · 每档 50 ms</span>
+        <h2>{t('延迟分布')}</h2>
+        <span className="meta">{t('{{n}} 个可用节点 · 每档 50 ms', { n: alive.length })}</span>
       </header>
       <dl className="dist__stats">
         <div>
-          <dt>中位数</dt>
+          <dt>{t('中位数')}</dt>
           <dd className="num">
             {pct(0.5)}
             <span>ms</span>
@@ -420,23 +425,23 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
           </dd>
         </div>
         <div>
-          <dt>低于 100 ms</dt>
+          <dt>{t('低于 100 ms')}</dt>
           <dd className="num">
             {fast}
-            <span>个</span>
+            <span>{t('个')}</span>
           </dd>
         </div>
         <div>
-          <dt>不可用</dt>
+          <dt>{t('不可用')}</dt>
           <dd className={`num${down ? ' is-bad' : ''}`}>
             {down}
-            <span>个</span>
+            <span>{t('个')}</span>
           </dd>
         </div>
       </dl>
-      <div className="dist" role="img" aria-label={bins.map((b) => `${b.from}–${b.from + BIN} ms：${b.count} 个`).join('，')}>
+      <div className="dist" role="img" aria-label={bins.map((b) => t('{{from}}–{{to}} ms：{{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })).join(', ')}>
         {bins.map((b) => (
-          <div key={b.from} className="dist__col" title={`${b.from}–${b.from + BIN} ms · ${b.count} 个`}>
+          <div key={b.from} className="dist__col" title={t('{{from}}–{{to}} ms · {{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })}>
             <span className="dist__count num">{b.count || ''}</span>
             <span
               className={b.from < 100 ? 'dist__bar dist__bar--fast' : 'dist__bar'}

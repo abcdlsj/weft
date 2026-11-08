@@ -64,6 +64,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/bundles/{id}", s.authed(s.handleUpdateBundle))
 	s.mux.HandleFunc("DELETE /api/bundles/{id}", s.authed(s.handleDeleteBundle))
 	s.mux.HandleFunc("GET /api/bundles/{id}/preview", s.authed(s.handlePreview))
+	s.mux.HandleFunc("POST /api/rulesets", s.authed(s.handleCreateRuleSet))
+	s.mux.HandleFunc("POST /api/rulesets/import", s.authed(s.handleImportRuleSet))
+	s.mux.HandleFunc("GET /api/rulesets/{id}", s.authed(s.handleRuleSet))
+	s.mux.HandleFunc("PUT /api/rulesets/{id}", s.authed(s.handleUpdateRuleSet))
+	s.mux.HandleFunc("DELETE /api/rulesets/{id}", s.authed(s.handleDeleteRuleSet))
 	s.mux.HandleFunc("POST /api/subscriptions", s.authed(s.handleCreateSubscription))
 	s.mux.HandleFunc("PATCH /api/subscriptions/{id}", s.authed(s.handlePatchSubscription))
 	s.mux.HandleFunc("DELETE /api/subscriptions/{id}", s.authed(s.handleDeleteSubscription))
@@ -351,12 +356,20 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	rules, err := s.ruleSetViews()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	tpl, _ := s.store.GetSetting("default_template")
 	writeJSON(w, 200, map[string]any{
 		"hosts":           views,
 		"nodes":           nodes,
 		"bundles":         bundles,
 		"subscriptions":   subs,
+		"ruleSets":        rules,
+		"rulePresets":     RulePresets(),
+		"gfwListUrl":      GFWListURL,
 		"series":          bucketSeries(series),
 		"publicBase":      publicBase(r),
 		"demo":            s.demo,
@@ -646,6 +659,7 @@ type bundlePayload struct {
 	GroupBy   string   `json:"groupBy"`
 	GroupType string   `json:"groupType"`
 	Template  string   `json:"template"`
+	RuleSetID *string  `json:"ruleSetId"`
 	Members   []Member `json:"members"`
 }
 
@@ -659,7 +673,18 @@ func (s *Server) handleCreateBundle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "名称不能为空")
 		return
 	}
-	b := Bundle{Name: body.Name, Slug: body.Slug, GroupBy: body.GroupBy, GroupType: body.GroupType, Template: body.Template}
+	ruleSetID := ""
+	if body.RuleSetID != nil {
+		ruleSetID = *body.RuleSetID
+	}
+	if ruleSetID != "" {
+		if _, err := s.store.RuleSet(ruleSetID); err != nil {
+			writeErr(w, 400, "规则集不存在")
+			return
+		}
+	}
+	b := Bundle{Name: body.Name, Slug: body.Slug, GroupBy: body.GroupBy, GroupType: body.GroupType,
+		Template: body.Template, RuleSetID: ruleSetID}
 	normalizeBundle(&b)
 	if b.Slug == "" {
 		b.Slug = slugify(b.Name)
@@ -692,6 +717,15 @@ func (s *Server) handleUpdateBundle(w http.ResponseWriter, r *http.Request) {
 		b.Name = body.Name
 	}
 	b.Slug = body.Slug
+	if body.RuleSetID != nil {
+		if *body.RuleSetID != "" {
+			if _, err := s.store.RuleSet(*body.RuleSetID); err != nil {
+				writeErr(w, 400, "规则集不存在")
+				return
+			}
+		}
+		b.RuleSetID = *body.RuleSetID
+	}
 	b.GroupBy = body.GroupBy
 	b.GroupType = body.GroupType
 	b.Template = body.Template
@@ -775,7 +809,12 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"body": payload, "nodes": len(links)})
 		return
 	}
-	body, err := BuildMihomoYAML(*b, hosts, nodes)
+	rs, err := s.ruleSetFor(b)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	body, err := BuildMihomoYAML(*b, hosts, nodes, rs)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -826,6 +865,7 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 		Label   *string `json:"label"`
 		Enabled *bool   `json:"enabled"`
 		Format  *string `json:"format"`
+		Bearer  *string `json:"bearer"`
 		Rotate  bool    `json:"rotate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -840,7 +880,15 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	if err := s.store.UpdateSubscription(id, body.Label, body.Enabled, body.Format); err != nil {
+	if body.Bearer != nil {
+		v := strings.TrimSpace(*body.Bearer)
+		if v != "" && len(v) < 8 {
+			writeErr(w, 400, "bearer token 至少 8 位")
+			return
+		}
+		body.Bearer = &v
+	}
+	if err := s.store.UpdateSubscription(id, body.Label, body.Enabled, body.Format, body.Bearer); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -852,6 +900,9 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		out["url"] = s.subURL(r, &Subscription{Token: t, AccessKey: key})
+		if full, err := s.store.SubscriptionByID(id); err == nil {
+			out["bearer"] = full.Bearer
+		}
 	}
 	writeJSON(w, 200, out)
 }
@@ -924,14 +975,17 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "subscription not found", http.StatusNotFound)
 		return
 	}
-	// A key in the query is the second half of the URL. A link that leaks
-	// without it is worth nothing.
-	if sub.AccessKey != "" {
-		given := r.URL.Query().Get("key")
-		if subtle.ConstantTimeCompare([]byte(given), []byte(sub.AccessKey)) != 1 {
-			http.Error(w, "subscription key required", http.StatusForbidden)
-			return
-		}
+	// Two proofs are accepted: the query key that travels with the URL, and a
+	// bearer token a client can store in its own header. Either one is enough,
+	// so a client that cannot add headers keeps working unchanged.
+	keyOK := sub.AccessKey != "" &&
+		subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(sub.AccessKey)) == 1
+	bearer := requestBearer(r)
+	bearerOK := sub.Bearer != "" && bearer != "" &&
+		subtle.ConstantTimeCompare([]byte(bearer), []byte(sub.Bearer)) == 1
+	if (sub.AccessKey != "" || sub.Bearer != "") && !keyOK && !bearerOK {
+		http.Error(w, "subscription key required", http.StatusForbidden)
+		return
 	}
 	b, err := s.store.Bundle(sub.BundleID)
 	if err != nil {
@@ -955,8 +1009,26 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.RecordSubscriptionHit(sub.ID, device, ua,
 		ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")))
+	title := strings.TrimSpace(sub.Label)
+	if title == "" {
+		title = b.Name
+	}
+	if title == "" {
+		title = "weft"
+	}
 	w.Header().Set("Profile-Update-Interval", "12")
-	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=0; expire=0"))
+	w.Header().Set("Profile-Web-Page-Url", publicBase(r)+"/subscriptions")
+	// weft does not meter traffic. A large total keeps clients from showing a
+	// meaningless 0 B / 0 B, and expire=0 means the profile never expires.
+	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=%d; expire=0", subscriptionTrafficTotal))
+	extension := ".yaml"
+	switch target {
+	case "base64", "text":
+		extension = ".txt"
+	default:
+		extension = ".yaml"
+	}
+	w.Header().Set("Content-Disposition", contentDisposition(title+extension))
 	switch target {
 	case "base64":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -965,13 +1037,17 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, strings.Join(BuildLinks(hosts, nodes), "\n"))
 	default:
-		body, err := BuildMihomoYAML(*b, hosts, nodes)
+		rs, err := s.ruleSetFor(b)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		body, err := BuildMihomoYAML(*b, hosts, nodes, rs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
-		w.Header().Set("Content-Disposition", `inline; filename="weft.yaml"`)
 		w.Write(body)
 	}
 }
@@ -1000,6 +1076,214 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(index)
+}
+
+// ---------- rule sets ----------
+
+const subscriptionTrafficTotal = int64(100 * 1024 * 1024 * 1024 * 1024) // 100 TiB
+
+// ruleSetView is the list projection. Content can be a GFW list with thousands
+// of lines, so it is fetched only when someone opens the editor.
+type ruleSetView struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Source        string `json:"source"`
+	UpdatedAt     int64  `json:"updatedAt"`
+	CreatedAt     int64  `json:"createdAt"`
+	RuleCount     int    `json:"ruleCount"`
+	ProviderCount int    `json:"providerCount"`
+	UsedBy        int    `json:"usedBy"`
+}
+
+func (s *Server) ruleSetViews() ([]ruleSetView, error) {
+	sets, err := s.store.ListRuleSets()
+	if err != nil {
+		return nil, err
+	}
+	bundles, err := s.store.ListBundles()
+	if err != nil {
+		return nil, err
+	}
+	used := map[string]int{}
+	for _, b := range bundles {
+		if b.RuleSetID != "" {
+			used[b.RuleSetID]++
+		}
+	}
+	out := make([]ruleSetView, 0, len(sets))
+	for _, rs := range sets {
+		rules, providers := CountRules(rs.Content)
+		out = append(out, ruleSetView{
+			ID: rs.ID, Name: rs.Name, Description: rs.Description, Source: rs.Source,
+			UpdatedAt: rs.UpdatedAt, CreatedAt: rs.CreatedAt,
+			RuleCount: rules, ProviderCount: providers, UsedBy: used[rs.ID],
+		})
+	}
+	return out, nil
+}
+
+func (s *Server) ruleSetFor(b *Bundle) (*RuleSet, error) {
+	if b == nil || b.RuleSetID == "" {
+		return nil, nil
+	}
+	rs, err := s.store.RuleSet(b.RuleSetID)
+	if err != nil {
+		return nil, fmt.Errorf("规则集缺失：%w", err)
+	}
+	return rs, nil
+}
+
+func (s *Server) handleCreateRuleSet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Content     string `json:"content"`
+		Source      string `json:"source"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&body); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeErr(w, 400, "名称不能为空")
+		return
+	}
+	if err := ValidateRuleSetContent(body.Content); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	rs, err := s.store.CreateRuleSet(RuleSet{Name: name, Description: strings.TrimSpace(body.Description),
+		Content: body.Content, Source: strings.TrimSpace(body.Source)})
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, rs)
+}
+
+func (s *Server) handleRuleSet(w http.ResponseWriter, r *http.Request) {
+	rs, err := s.store.RuleSet(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, "规则集不存在")
+		return
+	}
+	writeJSON(w, 200, rs)
+}
+
+func (s *Server) handleUpdateRuleSet(w http.ResponseWriter, r *http.Request) {
+	rs, err := s.store.RuleSet(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, "规则集不存在")
+		return
+	}
+	var body struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Content     string `json:"content"`
+		Source      string `json:"source"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&body); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+	if strings.TrimSpace(body.Name) != "" {
+		rs.Name = strings.TrimSpace(body.Name)
+	}
+	rs.Description = strings.TrimSpace(body.Description)
+	rs.Source = strings.TrimSpace(body.Source)
+	rs.Content = body.Content
+	if err := ValidateRuleSetContent(rs.Content); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if err := s.store.UpdateRuleSet(*rs); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	updated, _ := s.store.RuleSet(rs.ID)
+	writeJSON(w, 200, updated)
+}
+
+func (s *Server) handleDeleteRuleSet(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteRuleSet(r.PathValue("id")); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) handleImportRuleSet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string `json:"name"`
+		URL         string `json:"url"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	source := strings.TrimSpace(body.URL)
+	if source == "" {
+		source = GFWListURL
+	}
+	if name == "" {
+		name = "导入的规则"
+	}
+	data, err := FetchRuleSource(source)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	content, err := ImportRuleSetContent(data)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	rs, err := s.store.CreateRuleSet(RuleSet{Name: name, Description: strings.TrimSpace(body.Description),
+		Content: content, Source: source})
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, rs)
+}
+
+// contentDisposition names the downloaded profile for Clash-family clients and
+// Shadowrocket. The ASCII fallback keeps old clients happy; filename* carries
+// the real, possibly Chinese, name.
+func contentDisposition(filename string) string {
+	ext := ".yaml"
+	if strings.HasSuffix(filename, ".txt") {
+		ext = ".txt"
+	}
+	stem := strings.TrimSuffix(filename, ext)
+	ascii := strings.Map(func(r rune) rune {
+		switch {
+		case r < 32 || r > 126:
+			return '-'
+		case r == '"' || r == '\\':
+			return '-'
+		}
+		return r
+	}, stem)
+	ascii = strings.TrimSpace(strings.Trim(ascii, "-_ "))
+	if ascii == "" {
+		ascii = "weft"
+	}
+	return fmt.Sprintf(`attachment; filename="%s%s"; filename*=UTF-8''%s`, ascii, ext, url.PathEscape(filename))
+}
+
+// requestBearer reads an RFC 6750 Authorization header without caring about
+// the case of the scheme name.
+func requestBearer(r *http.Request) string {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(h) <= 7 || !strings.EqualFold(h[:7], "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(h[7:])
 }
 
 // ---------- helpers ----------

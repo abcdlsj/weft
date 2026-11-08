@@ -1,3 +1,5 @@
+import i18n from './i18n'
+
 export type HostStatus = 'online' | 'stale' | 'offline' | 'never' | 'manual'
 export type HostKind = 'agent' | 'static'
 
@@ -43,8 +45,29 @@ export interface Bundle {
   groupBy: 'host' | 'type' | 'flat'
   groupType: 'url-test' | 'select' | 'fallback' | 'load-balance'
   template: string
+  ruleSetId: string
   createdAt: number
   members: Member[]
+}
+
+export interface RuleSet {
+  id: string
+  name: string
+  description: string
+  content?: string
+  source: string
+  updatedAt: number
+  createdAt: number
+  ruleCount?: number
+  providerCount?: number
+  usedBy?: number
+}
+
+export interface RulePreset {
+  key: string
+  name: string
+  description: string
+  content: string
 }
 
 export interface AccessStat {
@@ -62,6 +85,7 @@ export interface Subscription {
   label: string
   token: string
   accessKey: string
+  bearer: string
   format: 'mihomo' | 'base64' | 'text'
   enabled: boolean
   hits: number
@@ -92,6 +116,9 @@ export interface FleetState {
   nodes: ProxyNode[]
   bundles: Bundle[]
   subscriptions: Subscription[]
+  ruleSets: RuleSet[]
+  rulePresets: RulePreset[]
+  gfwListUrl: string
   series: SeriesPoint[]
   publicBase: string
   demo: boolean
@@ -122,7 +149,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!res.ok) {
-    throw new Error(data?.error || `${res.status} ${res.statusText}`)
+    const message = data?.error || `${res.status} ${res.statusText}`
+    throw new Error(i18n.t(message))
   }
   return data as T
 }
@@ -174,9 +202,9 @@ export const api = {
     }),
   patchSubscription: (
     id: string,
-    body: { label?: string; enabled?: boolean; format?: string; rotate?: boolean },
+    body: { label?: string; enabled?: boolean; format?: string; bearer?: string; rotate?: boolean },
   ) =>
-    req<{ ok: boolean; url?: string }>(`/api/subscriptions/${id}`, {
+    req<{ ok: boolean; url?: string; bearer?: string }>(`/api/subscriptions/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
@@ -189,6 +217,14 @@ export const api = {
     }),
   saveSettings: (body: { defaultTemplate?: string }) =>
     req<{ ok: boolean }>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  createRuleSet: (body: { name: string; description?: string; content: string; source?: string }) =>
+    req<RuleSet>('/api/rulesets', { method: 'POST', body: JSON.stringify(body) }),
+  updateRuleSet: (id: string, body: { name: string; description?: string; content: string; source?: string }) =>
+    req<RuleSet>(`/api/rulesets/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteRuleSet: (id: string) => req<{ ok: boolean }>(`/api/rulesets/${id}`, { method: 'DELETE' }),
+  importRuleSet: (body: { name: string; url: string; description?: string }) =>
+    req<RuleSet>('/api/rulesets/import', { method: 'POST', body: JSON.stringify(body) }),
+  ruleSet: (id: string) => req<RuleSet>(`/api/rulesets/${id}`),
 }
 
 export interface BundlePayload {
@@ -197,16 +233,17 @@ export interface BundlePayload {
   groupBy?: string
   groupType?: string
   template?: string
+  ruleSetId?: string
   members?: Member[]
 }
 
 export function ago(ts: number): string {
   if (!ts) return '—'
   const s = Math.max(0, Math.floor(Date.now() / 1000 - ts))
-  if (s < 60) return `${s} 秒前`
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`
-  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`
-  return `${Math.floor(s / 86400)} 天前`
+  if (s < 60) return i18n.t('{{n}} 秒前', { n: s })
+  if (s < 3600) return i18n.t('{{n}} 分钟前', { n: Math.floor(s / 60) })
+  if (s < 86400) return i18n.t('{{n}} 小时前', { n: Math.floor(s / 3600) })
+  return i18n.t('{{n}} 天前', { n: Math.floor(s / 86400) })
 }
 
 export function clock(ts: number): string {
@@ -217,14 +254,14 @@ export function clock(ts: number): string {
 export function statusLabel(status: HostStatus): string {
   switch (status) {
     case 'online':
-      return '在线'
+      return i18n.t('在线')
     case 'stale':
-      return '待复核'
+      return i18n.t('待复核')
     case 'offline':
-      return '离线'
+      return i18n.t('离线')
     case 'manual':
-      return '手工'
+      return i18n.t('手工')
     default:
-      return '未接入'
+      return i18n.t('未接入')
   }
 }

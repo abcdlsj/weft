@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS bundles (
   group_by TEXT NOT NULL DEFAULT 'host',
   group_type TEXT NOT NULL DEFAULT 'url-test',
   template TEXT NOT NULL DEFAULT '',
+  rule_set_id TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS bundle_members (
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   label TEXT NOT NULL DEFAULT '',
   token TEXT NOT NULL UNIQUE,
   access_key TEXT NOT NULL DEFAULT '',
+  bearer TEXT NOT NULL DEFAULT '',
   format TEXT NOT NULL DEFAULT 'mihomo',
   enabled INTEGER NOT NULL DEFAULT 1,
   hits INTEGER NOT NULL DEFAULT 0,
@@ -107,6 +109,15 @@ CREATE TABLE IF NOT EXISTS sub_access (
   ip TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sub_access ON sub_access (subscription_id, at DESC);
+CREATE TABLE IF NOT EXISTS rule_sets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL
@@ -117,8 +128,11 @@ CREATE TABLE IF NOT EXISTS settings (
 	s.db.Exec(`ALTER TABLE hosts ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent'`)
 	s.db.Exec(`ALTER TABLE nodes ADD COLUMN source TEXT NOT NULL DEFAULT 'agent'`)
 	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN access_key TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN bearer TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE bundles ADD COLUMN rule_set_id TEXT NOT NULL DEFAULT ''`)
 	// every link gets a key, including ones created before keys existed
 	s.db.Exec(`UPDATE subscriptions SET access_key = lower(hex(randomblob(8))) WHERE access_key = ''`)
+	s.db.Exec(`UPDATE subscriptions SET bearer = lower(hex(randomblob(24))) WHERE bearer = ''`)
 	return err
 }
 
@@ -401,6 +415,7 @@ type Bundle struct {
 	GroupBy   string   `json:"groupBy"`   // host | type | flat
 	GroupType string   `json:"groupType"` // url-test | select | fallback
 	Template  string   `json:"template"`
+	RuleSetID string   `json:"ruleSetId"`
 	CreatedAt int64    `json:"createdAt"`
 	Members   []Member `json:"members,omitempty"`
 }
@@ -420,8 +435,8 @@ func (s *Store) CreateBundle(b Bundle) (*Bundle, error) {
 		b.Slug = b.ID
 	}
 	b.CreatedAt = now()
-	_, err := s.db.Exec(`INSERT INTO bundles (id,name,slug,group_by,group_type,template,created_at)
-VALUES (?,?,?,?,?,?,?)`, b.ID, b.Name, b.Slug, b.GroupBy, b.GroupType, b.Template, b.CreatedAt)
+	_, err := s.db.Exec(`INSERT INTO bundles (id,name,slug,group_by,group_type,template,rule_set_id,created_at)
+VALUES (?,?,?,?,?,?,?,?)`, b.ID, b.Name, b.Slug, b.GroupBy, b.GroupType, b.Template, b.RuleSetID, b.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +444,7 @@ VALUES (?,?,?,?,?,?,?)`, b.ID, b.Name, b.Slug, b.GroupBy, b.GroupType, b.Templat
 }
 
 func (s *Store) ListBundles() ([]Bundle, error) {
-	rows, err := s.db.Query(`SELECT id,name,slug,group_by,group_type,template,created_at FROM bundles ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id,name,slug,group_by,group_type,template,rule_set_id,created_at FROM bundles ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +452,7 @@ func (s *Store) ListBundles() ([]Bundle, error) {
 	var out []Bundle
 	for rows.Next() {
 		var b Bundle
-		if err := rows.Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.RuleSetID, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -454,8 +469,8 @@ func (s *Store) ListBundles() ([]Bundle, error) {
 
 func (s *Store) Bundle(id string) (*Bundle, error) {
 	var b Bundle
-	err := s.db.QueryRow(`SELECT id,name,slug,group_by,group_type,template,created_at FROM bundles WHERE id=?`, id).
-		Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.CreatedAt)
+	err := s.db.QueryRow(`SELECT id,name,slug,group_by,group_type,template,rule_set_id,created_at FROM bundles WHERE id=?`, id).
+		Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.RuleSetID, &b.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -467,8 +482,8 @@ func (s *Store) Bundle(id string) (*Bundle, error) {
 }
 
 func (s *Store) UpdateBundle(b Bundle) error {
-	_, err := s.db.Exec(`UPDATE bundles SET name=?,slug=?,group_by=?,group_type=?,template=? WHERE id=?`,
-		b.Name, slugify(b.Slug), b.GroupBy, b.GroupType, b.Template, b.ID)
+	_, err := s.db.Exec(`UPDATE bundles SET name=?,slug=?,group_by=?,group_type=?,template=?,rule_set_id=? WHERE id=?`,
+		b.Name, slugify(b.Slug), b.GroupBy, b.GroupType, b.Template, b.RuleSetID, b.ID)
 	return err
 }
 
@@ -532,6 +547,7 @@ type Subscription struct {
 	Label      string       `json:"label"`
 	Token      string       `json:"token"`
 	AccessKey  string       `json:"accessKey"`
+	Bearer     string       `json:"bearer"`
 	Format     string       `json:"format"`
 	Enabled    bool         `json:"enabled"`
 	Hits       int64        `json:"hits"`
@@ -549,11 +565,19 @@ func newAccessKey() string {
 	return hex.EncodeToString(b)
 }
 
+// newBearer is the token some clients send as an Authorization header. It is
+// longer than the query key because it never appears in a URL.
+func newBearer() string {
+	b := make([]byte, 24)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func (s *Store) CreateSubscription(bundleID, label, format string) (*Subscription, error) {
 	sub := &Subscription{ID: newID(), BundleID: bundleID, Label: label, Token: newToken(),
-		AccessKey: newAccessKey(), Format: format, Enabled: true, CreatedAt: now()}
-	_, err := s.db.Exec(`INSERT INTO subscriptions (id,bundle_id,label,token,access_key,format,enabled,created_at)
-VALUES (?,?,?,?,?,?,?,?)`, sub.ID, sub.BundleID, sub.Label, sub.Token, sub.AccessKey, sub.Format, 1, sub.CreatedAt)
+		AccessKey: newAccessKey(), Bearer: newBearer(), Format: format, Enabled: true, CreatedAt: now()}
+	_, err := s.db.Exec(`INSERT INTO subscriptions (id,bundle_id,label,token,access_key,bearer,format,enabled,created_at)
+VALUES (?,?,?,?,?,?,?,?,?)`, sub.ID, sub.BundleID, sub.Label, sub.Token, sub.AccessKey, sub.Bearer, sub.Format, 1, sub.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +585,7 @@ VALUES (?,?,?,?,?,?,?,?)`, sub.ID, sub.BundleID, sub.Label, sub.Token, sub.Acces
 }
 
 func (s *Store) ListSubscriptions() ([]Subscription, error) {
-	rows, err := s.db.Query(`SELECT s.id,s.bundle_id,COALESCE(b.name,''),s.label,s.token,s.access_key,s.format,s.enabled,
+	rows, err := s.db.Query(`SELECT s.id,s.bundle_id,COALESCE(b.name,''),s.label,s.token,s.access_key,s.bearer,s.format,s.enabled,
 s.hits,s.last_used_at,s.last_ua,s.created_at
 FROM subscriptions s LEFT JOIN bundles b ON b.id = s.bundle_id ORDER BY s.created_at`)
 	if err != nil {
@@ -573,7 +597,7 @@ FROM subscriptions s LEFT JOIN bundles b ON b.id = s.bundle_id ORDER BY s.create
 		var sub Subscription
 		var enabled int
 		if err := rows.Scan(&sub.ID, &sub.BundleID, &sub.BundleName, &sub.Label, &sub.Token, &sub.AccessKey,
-			&sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt); err != nil {
+			&sub.Bearer, &sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt); err != nil {
 			return nil, err
 		}
 		sub.Enabled = enabled == 1
@@ -585,9 +609,9 @@ FROM subscriptions s LEFT JOIN bundles b ON b.id = s.bundle_id ORDER BY s.create
 func (s *Store) SubscriptionByID(id string) (*Subscription, error) {
 	var sub Subscription
 	var enabled int
-	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,access_key,format,enabled,hits,last_used_at,last_ua,created_at
+	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,access_key,bearer,format,enabled,hits,last_used_at,last_ua,created_at
 FROM subscriptions WHERE id=?`, id).Scan(&sub.ID, &sub.BundleID, &sub.Label, &sub.Token, &sub.AccessKey,
-		&sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt)
+		&sub.Bearer, &sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -598,9 +622,9 @@ FROM subscriptions WHERE id=?`, id).Scan(&sub.ID, &sub.BundleID, &sub.Label, &su
 func (s *Store) SubscriptionByToken(token string) (*Subscription, error) {
 	var sub Subscription
 	var enabled int
-	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,access_key,format,enabled,hits,last_used_at,last_ua,created_at
+	err := s.db.QueryRow(`SELECT id,bundle_id,label,token,access_key,bearer,format,enabled,hits,last_used_at,last_ua,created_at
 FROM subscriptions WHERE token=?`, token).Scan(&sub.ID, &sub.BundleID, &sub.Label, &sub.Token, &sub.AccessKey,
-		&sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt)
+		&sub.Bearer, &sub.Format, &enabled, &sub.Hits, &sub.LastUsedAt, &sub.LastUA, &sub.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -608,7 +632,7 @@ FROM subscriptions WHERE token=?`, token).Scan(&sub.ID, &sub.BundleID, &sub.Labe
 	return &sub, err
 }
 
-func (s *Store) UpdateSubscription(id string, label *string, enabled *bool, format *string) error {
+func (s *Store) UpdateSubscription(id string, label *string, enabled *bool, format, bearer *string) error {
 	if label != nil {
 		if _, err := s.db.Exec(`UPDATE subscriptions SET label=? WHERE id=?`, *label, id); err != nil {
 			return err
@@ -624,6 +648,11 @@ func (s *Store) UpdateSubscription(id string, label *string, enabled *bool, form
 			return err
 		}
 	}
+	if bearer != nil {
+		if _, err := s.db.Exec(`UPDATE subscriptions SET bearer=? WHERE id=?`, *bearer, id); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -631,7 +660,7 @@ func (s *Store) UpdateSubscription(id string, label *string, enabled *bool, form
 // the key in the query.
 func (s *Store) RotateSubscription(id string) (string, string, error) {
 	t, key := newToken(), newAccessKey()
-	_, err := s.db.Exec(`UPDATE subscriptions SET token=?,access_key=? WHERE id=?`, t, key, id)
+	_, err := s.db.Exec(`UPDATE subscriptions SET token=?,access_key=?,bearer=? WHERE id=?`, t, key, newBearer(), id)
 	return t, key, err
 }
 
@@ -671,6 +700,74 @@ FROM sub_access WHERE subscription_id=? GROUP BY device ORDER BY MAX(at) DESC`, 
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// ---------- rule sets ----------
+
+// RuleSet is a user-editable slice of mihomo routing: the `rules` list, the
+// `rule-providers` it references, and any extra proxy groups those rules use.
+// It is stored as a small YAML document so the panel can stay a text editor.
+type RuleSet struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+	Source      string `json:"source"`
+	UpdatedAt   int64  `json:"updatedAt"`
+	CreatedAt   int64  `json:"createdAt"`
+}
+
+func (s *Store) CreateRuleSet(rs RuleSet) (*RuleSet, error) {
+	rs.ID = newID()
+	rs.CreatedAt = now()
+	rs.UpdatedAt = rs.CreatedAt
+	_, err := s.db.Exec(`INSERT INTO rule_sets (id,name,description,content,source,updated_at,created_at)
+VALUES (?,?,?,?,?,?,?)`, rs.ID, rs.Name, rs.Description, rs.Content, rs.Source, rs.UpdatedAt, rs.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &rs, nil
+}
+
+func (s *Store) ListRuleSets() ([]RuleSet, error) {
+	rows, err := s.db.Query(`SELECT id,name,description,content,source,updated_at,created_at FROM rule_sets ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RuleSet
+	for rows.Next() {
+		var rs RuleSet
+		if err := rows.Scan(&rs.ID, &rs.Name, &rs.Description, &rs.Content, &rs.Source, &rs.UpdatedAt, &rs.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rs)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RuleSet(id string) (*RuleSet, error) {
+	var rs RuleSet
+	err := s.db.QueryRow(`SELECT id,name,description,content,source,updated_at,created_at FROM rule_sets WHERE id=?`, id).
+		Scan(&rs.ID, &rs.Name, &rs.Description, &rs.Content, &rs.Source, &rs.UpdatedAt, &rs.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &rs, err
+}
+
+func (s *Store) UpdateRuleSet(rs RuleSet) error {
+	_, err := s.db.Exec(`UPDATE rule_sets SET name=?,description=?,content=?,source=?,updated_at=? WHERE id=?`,
+		rs.Name, rs.Description, rs.Content, rs.Source, now(), rs.ID)
+	return err
+}
+
+func (s *Store) DeleteRuleSet(id string) error {
+	if _, err := s.db.Exec(`UPDATE bundles SET rule_set_id='' WHERE rule_set_id=?`, id); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM rule_sets WHERE id=?`, id)
+	return err
 }
 
 // ---------- settings ----------

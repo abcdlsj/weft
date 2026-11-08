@@ -70,7 +70,8 @@ func namespaced(raw json.RawMessage, hostName, nodeName string) (bundleNode, boo
 
 // BuildMihomoYAML renders a full mihomo config for the bundle. The template is
 // edited as a YAML node tree so its key order and comments-of-shape survive.
-func BuildMihomoYAML(b Bundle, hosts []Host, nodes []Node) ([]byte, error) {
+// An optional rule set replaces the template's rules and merges its providers.
+func BuildMihomoYAML(b Bundle, hosts []Host, nodes []Node, ruleSets ...*RuleSet) ([]byte, error) {
 	hostNames := map[string]string{}
 	for _, h := range hosts {
 		hostNames[h.ID] = h.Name
@@ -150,6 +151,14 @@ func BuildMihomoYAML(b Bundle, hosts []Host, nodes []Node) ([]byte, error) {
 	}
 	if _, ok := valueOf(root, "rules"); !ok {
 		setKey(root, "rules", nodeOf([]string{"MATCH,PROXY"}))
+	}
+	for _, rs := range ruleSets {
+		if rs == nil {
+			continue
+		}
+		if err := ApplyRuleSet(root, rs.Content); err != nil {
+			return nil, fmt.Errorf("rule set %q: %w", rs.Name, err)
+		}
 	}
 	return yaml.Marshal(&doc)
 }

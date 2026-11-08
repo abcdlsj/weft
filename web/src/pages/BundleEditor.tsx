@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api, type Bundle } from '../api'
 import { Icon } from '../icons'
 import { Copy, Empty, notify } from '../ui'
@@ -20,12 +21,14 @@ const behaviorOptions = [
 ] as const
 
 export function BundleEditor({ state, refresh, navigate, id }: Props) {
+  const { t } = useTranslation()
   const existing = id ? state.bundles.find((b) => b.id === id) : undefined
   const [name, setName] = useState(existing?.name ?? '')
   const [slug, setSlug] = useState(existing?.slug ?? '')
   const [groupBy, setGroupBy] = useState<Bundle['groupBy']>(existing?.groupBy ?? 'host')
   const [groupType, setGroupType] = useState<Bundle['groupType']>(existing?.groupType ?? 'url-test')
   const [template, setTemplate] = useState(existing?.template ?? state.defaultTemplate ?? '')
+  const [ruleSetID, setRuleSetID] = useState(existing?.ruleSetId ?? '')
   const [showTemplate, setShowTemplate] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(
     () => new Set((existing?.members ?? []).map((m) => `${m.hostId}|${m.key}`)),
@@ -100,7 +103,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
 
   async function save() {
     if (!name.trim()) {
-      notify('先给编排起个名字')
+      notify(t('先给编排起个名字'))
       return
     }
     setBusy(true)
@@ -111,6 +114,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
         groupBy,
         groupType,
         template,
+        ruleSetId: ruleSetID,
         members: [...picked].map((k) => {
           const [hostId, ...rest] = k.split('|')
           return { hostId, key: rest.join('|') }
@@ -120,7 +124,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
       setSavedID(saved.id)
       setSlug(saved.slug)
       await refresh()
-      notify('已保存')
+      notify(t('已保存'))
       if (!id) navigate(`/bundles/${saved.id}`)
     } catch (e) {
       notify((e as Error).message)
@@ -133,46 +137,46 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
     <>
       <div className="title-row">
         <div>
-          <h1>{existing ? existing.name : '新建编排'}</h1>
+          <h1>{existing ? existing.name : t('新建编排')}</h1>
           <p className="sub">
-            {selectedCount} 个节点
+            {t('{{n}} 个节点', { n: selectedCount })}
             {savedID && <span className="mono"> · /{slug || existing?.slug}</span>}
           </p>
         </div>
         <div className="title-actions">
           <button className="btn btn--quiet" onClick={() => navigate('/bundles')}>
-            返回
+            {t('返回')}
           </button>
           <button className="btn btn--primary" onClick={() => void save()} disabled={busy}>
-            保存
+            {t('保存')}
           </button>
         </div>
       </div>
 
       <section className="panel">
         <header>
-          <h2>基本设置</h2>
+          <h2>{t('基本设置')}</h2>
           <button className="card-link" onClick={() => setShowTemplate((v) => !v)}>
-            {showTemplate ? '收起配置模板' : '编辑配置模板'}
+            {showTemplate ? t('收起配置模板') : t('编辑配置模板')}
           </button>
         </header>
         <div className="form-grid">
           <label className="field">
-            <span>名称</span>
-            <input value={name} placeholder="全部线路" onChange={(e) => setName(e.target.value)} />
+            <span>{t('名称')}</span>
+            <input value={name} placeholder={t('全部线路')} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="field">
-            <span>路径</span>
+            <span>{t('路径')}</span>
             <input
               className="mono"
               value={slug}
               placeholder="all"
               onChange={(e) => setSlug(e.target.value)}
             />
-            <span className="field__hint">用于订阅地址的分组标识，保存后尽量别改。</span>
+            <span className="field__hint">{t('用于订阅地址的分组标识，保存后尽量别改。')}</span>
           </label>
           <div className="field">
-            <span>分组方式</span>
+            <span>{t('分组方式')}</span>
             <div className="segmented">
               {groupOptions.map((o) => (
                 <button
@@ -181,30 +185,45 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
                   aria-pressed={groupBy === o.value}
                   onClick={() => setGroupBy(o.value)}
                 >
-                  {o.label}
+                  {t(o.label)}
                 </button>
               ))}
             </div>
           </div>
           <label className="field">
-            <span>组行为</span>
+            <span>{t('组行为')}</span>
             <select value={groupType} onChange={(e) => setGroupType(e.target.value as Bundle['groupType'])}>
               {behaviorOptions.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label}
+                  {t(o.label)}
                 </option>
               ))}
             </select>
           </label>
+          <label className="field">
+            <span>{t('规则集')}</span>
+            <select value={ruleSetID} onChange={(e) => setRuleSetID(e.target.value)}>
+              <option value="">{t('不套用规则集')}</option>
+              {state.ruleSets.map((rs) => (
+                <option key={rs.id} value={rs.id}>
+                  {rs.name}（{t('{{rules}} 条规则 · {{providers}} 个提供者', {
+                    rules: rs.ruleCount ?? 0,
+                    providers: rs.providerCount ?? 0,
+                  })}）
+                </option>
+              ))}
+            </select>
+            <span className="field__hint">{t('套用后覆盖模板里的 rules，并合并 rule-providers。')}</span>
+          </label>
         </div>
         {showTemplate && (
           <label className="field">
-            <span>配置模板（mihomo YAML，PROXY 与 AUTO 组会自动填充）</span>
+            <span>{t('配置模板（mihomo YAML，PROXY 与 AUTO 组会自动填充）')}</span>
             <textarea
               className="code-input"
               rows={12}
               value={template}
-              placeholder="留空则使用默认模板"
+              placeholder={t('留空则使用默认模板')}
               onChange={(e) => setTemplate(e.target.value)}
             />
           </label>
@@ -214,25 +233,25 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
       <div className="grid grid--editor">
         <section className="panel span-5">
           <header>
-            <h2>节点</h2>
-            <span className="meta">已选 {selectedCount}</span>
+            <h2>{t('节点')}</h2>
+            <span className="meta">{t('已选 {{n}}', { n: selectedCount })}</span>
           </header>
           <div className="picker-tools">
             <label className="search">
               <Icon name="search" />
               <input
                 value={query}
-                placeholder="搜索节点、机器或协议"
+                placeholder={t('搜索节点、机器或协议')}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </label>
             <label className="check">
               <input type="checkbox" checked={aliveOnly} onChange={(e) => setAliveOnly(e.target.checked)} />
-              只看可用
+              {t('只看可用')}
             </label>
           </div>
           <div className="picker">
-            {grouped.length === 0 && <p className="prose muted">没有匹配的节点。</p>}
+            {grouped.length === 0 && <p className="prose muted">{t('没有匹配的节点。')}</p>}
             {grouped.map(([hostID, nodes]) => {
               const host = hostsByID.get(hostID)
               const keys = nodes.map((n) => n.key)
@@ -272,24 +291,24 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
 
         <section className="panel span-7">
           <header>
-            <h2>预览</h2>
+            <h2>{t('预览')}</h2>
             <div className="segmented segmented--sm">
               <button aria-pressed={tab === 'yaml'} onClick={() => setTab('yaml')}>
                 YAML
               </button>
               <button aria-pressed={tab === 'links'} onClick={() => setTab('links')}>
-                链接
+                {t('链接')}
               </button>
             </div>
           </header>
           {!savedID ? (
-            <Empty title="保存后可预览" body="预览读取的是服务端最新的节点上报，先保存再生成。" />
+            <Empty title={t('保存后可预览')} body={t('预览读取的是服务端最新的节点上报，先保存再生成。')} />
           ) : !preview ? (
-            <p className="prose muted">正在生成…</p>
+            <p className="prose muted">{t('正在生成…')}</p>
           ) : (
             <>
               <div className="preview-meta">
-                <span className="meta">{preview.nodes} 个节点</span>
+                <span className="meta">{t('{{n}} 个节点', { n: preview.nodes })}</span>
                 <Copy value={preview.body} />
               </div>
               <pre className="code code--preview">{preview.body}</pre>

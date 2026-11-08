@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Icon } from './icons'
 
 export function notify(message: string) {
@@ -26,6 +27,7 @@ export function Toaster() {
 }
 
 export function Copy({ value, label = '复制' }: { value: string; label?: string }) {
+  const { t } = useTranslation()
   const [done, setDone] = useState(false)
   return (
     <button
@@ -47,22 +49,23 @@ export function Copy({ value, label = '复制' }: { value: string; label?: strin
       }}
     >
       <Icon name={done ? 'check' : 'copy'} />
-      {done ? '已复制' : label}
+      {done ? t('已复制') : t(label)}
     </button>
   )
 }
 
 export function StatusPill({ status }: { status: string }) {
+  const { t } = useTranslation()
   const label =
     status === 'online'
-      ? '在线'
+      ? t('在线')
       : status === 'stale'
-        ? '待复核'
+        ? t('待复核')
         : status === 'offline'
-          ? '离线'
+          ? t('离线')
           : status === 'manual'
-            ? '手工'
-            : '未接入'
+            ? t('手工')
+            : t('未接入')
   const tone =
     status === 'online' ? 'ok' : status === 'stale' ? 'warn' : status === 'manual' ? 'quiet' : 'neutral'
   return <span className={`pill pill--${tone}`}>{label}</span>
@@ -81,6 +84,7 @@ export function Modal({
   footer?: ReactNode
   wide?: boolean
 }) {
+  const { t } = useTranslation()
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -99,7 +103,7 @@ export function Modal({
       >
         <header className="modal__head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭">
+          <button className="icon-btn" onClick={onClose} aria-label={t('关闭')}>
             <Icon name="close" />
           </button>
         </header>
@@ -121,6 +125,7 @@ export function Drawer({
   children: ReactNode
   wide?: boolean
 }) {
+  const { t } = useTranslation()
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -133,7 +138,7 @@ export function Drawer({
       <aside className={`drawer${wide ? ' drawer--wide' : ''}`} onClick={(e) => e.stopPropagation()} aria-label={title}>
         <header className="drawer__head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭">
+          <button className="icon-btn" onClick={onClose} aria-label={t('关闭')}>
             <Icon name="close" />
           </button>
         </header>

@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 /** A bundle's weave: one segment per host, width proportional to its node count.
  *  It is the product's own shape — several threads, one cloth. */
 export function WeaveStrip({
@@ -23,15 +25,16 @@ export function WeaveStrip({
 
 /** A host's threads: one cell per node, filled when the node answers, hollow when it does not. */
 export function NodeThreads({ nodes }: { nodes: { key: string; name: string; alive: boolean; delayMs: number }[] }) {
+  const { t } = useTranslation()
   if (nodes.length === 0) return <span className="muted">—</span>
   const alive = nodes.filter((n) => n.alive).length
   return (
-    <span className="threads" role="img" aria-label={`${alive} / ${nodes.length} 个节点可用`}>
+    <span className="threads" role="img" aria-label={t('{{alive}} / {{total}} 个节点可用', { alive, total: nodes.length })}>
       {nodes.map((n) => (
         <span
           key={n.key}
           className={n.alive ? 'threads__cell' : 'threads__cell threads__cell--down'}
-          title={`${n.name} · ${n.alive ? `${n.delayMs} ms` : '不可用'}`}
+          title={`${n.name} · ${n.alive ? `${n.delayMs} ms` : t('不可用')}`}
         />
       ))}
     </span>

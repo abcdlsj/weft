@@ -19,10 +19,10 @@ Running proxies on several machines usually means several subscription URLs, dri
 - **Any host, with or without mihomo** — each host runs `weft agent`, which reads either the local mihomo external-controller or the machine's own hysteria2 / xray config, and pushes the result outbound. No inbound ports, no SSH credentials, works behind NAT.
 - **Configs become nodes** — from `/etc/hysteria/config.yaml` and `/usr/local/etc/xray/config.json` the agent reconstructs the client side: password, obfs, certificate SNI, and Reality public keys (derived from the server's private key over X25519). Rotate a password on the box and the subscription follows.
 - **Hand-entered nodes** — paste `hy2://`, `vless://`, `trojan://`, `ss://` or `vmess://` links, or fill a form. Manual nodes are never overwritten by a report.
-- **One subscription URL per bundle** — pick nodes across hosts, get `/sub/<token>` in mihomo YAML, base64 or plain text. Tokens are revocable and track last use.
+- **One subscription URL per bundle** — pick nodes across hosts, get `/sub/<token>` in mihomo YAML, base64 or plain text. Tokens are revocable and track last use. Clients see the subscription label as the profile name, and a bearer token can replace the query key for clients that support custom headers.
 - **See which device pulls what** — the User-Agent becomes a client name (Clash Verge, sing-box, Shadowrocket, mihomo …), grouped per link with hit count, IP and last seen.
-- **Rule templates** — keep the routing rules once, apply them to every bundle.
-- **Panel** — live host status and latency, node picker, bundle editor, subscription management. Mobile first, installable as a PWA, tuned for Safari.
+- **Rule profiles** — edit `rules`, `rule-providers` and extra proxy groups once, import a gfwlist or a Clash rule source, then apply the profile to any bundle.
+- **Panel** — live host status and latency, node picker, bundle editor, subscription management, English and Chinese. Mobile first, installable as a PWA, tuned for Safari.
 - **Demo mode** — `weft serve --demo` runs a fully populated instance with no agents.
 
 ![Overview](docs/screenshots/overview-light.jpg)
@@ -49,6 +49,7 @@ make build          # panel + binary, single file
 | `weft agent` | `cmd/weft`, `internal/weft/agent.go`, `mihomo.go`, `serviceconfig.go` | reads local sources and reports proxies outbound |
 | store | `internal/weft/store.go` | SQLite: hosts, nodes, bundles, subscriptions, reports, access log, settings |
 | subscription builder | `internal/weft/sub.go` | template-driven mihomo YAML, base64 and plain link lists |
+| rule profiles | `internal/weft/rules.go` | gfwlist / rule-source import, preset library, rules merge into bundles |
 | device naming | `internal/weft/device.go` | User-Agent to client name, IP, optional `?tag=` override |
 | panel | `web/` | React + TypeScript SPA, five screens, dark mode, PWA, self-hosted fonts and icons |
 | demo fleet | `internal/weft/seed.go` | `--demo` seeds hosts, nodes, bundles and a live ticker |

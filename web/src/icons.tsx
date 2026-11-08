@@ -21,6 +21,12 @@ const shapes: Record<string, ReactElement> = {
       <path d="M13.4 6.25h1.6M13.4 13.75h1.6" />
     </>
   ),
+  rules: (
+    <>
+      <path d="M4.2 5.2h11.6M4.2 10h11.6M4.2 14.8h7.6" />
+      <circle cx="14.7" cy="14.8" r="1.7" />
+    </>
+  ),
   layers: (
     <>
       <path d="M10 2.8 17.2 6.6 10 10.4 2.8 6.6z" />

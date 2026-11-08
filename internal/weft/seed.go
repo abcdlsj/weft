@@ -96,9 +96,17 @@ func SeedDemo(st *Store) (*Bundle, error) {
 		members = append(members, Member{HostID: static.ID, Key: n.Key})
 	}
 
+	rules, err := st.CreateRuleSet(RuleSet{
+		Name: "GFW 列表", Description: "引用 Loyalsoldier 维护的 GFW 域名集。",
+		Content: RulePresets()[0].Content, Source: "preset:gfw",
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	main, err := st.CreateBundle(Bundle{
 		Name: "全部线路", Slug: "all", GroupBy: "host", GroupType: "url-test",
-		Template: DefaultTemplate,
+		Template: DefaultTemplate, RuleSetID: rules.ID,
 	})
 	if err != nil {
 		return nil, err
