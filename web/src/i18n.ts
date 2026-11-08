@@ -442,6 +442,7 @@ void i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
   returnEmptyString: false,
   initImmediate: false,
+  showSupportNotice: false,
 })
 
 document.documentElement.lang = initial === 'zh' ? 'zh-CN' : 'en'
