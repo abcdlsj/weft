@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api, type FleetState, type Me } from './api'
+import { api, setCSRF, type FleetState, type Me } from './api'
 import { Mark, Icon } from './icons'
 import { Toaster, notify } from './ui'
 import { Login } from './pages/Login'
@@ -10,7 +10,7 @@ import { Bundles } from './pages/Bundles'
 import { BundleEditor } from './pages/BundleEditor'
 import { Subscriptions } from './pages/Subscriptions'
 import { Settings } from './pages/Settings'
-import { Rules } from './pages/Rules'
+const Rules = lazy(() => import('./pages/Rules').then((m) => ({ default: m.Rules })))
 
 export interface PageProps {
   state: FleetState
@@ -55,7 +55,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [path, navigate] = usePath()
   const [theme, setTheme] = useTheme()
+  const [updateReady, setUpdateReady] = useState(false)
   const poll = useRef<number | null>(null)
+  const baselineVersion = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -71,11 +73,39 @@ export default function App() {
     api
       .me()
       .then((m) => {
+        setCSRF(m.csrf ?? '')
         setMe(m)
         if (m.authenticated) void refresh()
       })
       .catch(() => setMe({ authenticated: false, needsSetup: false, demo: false }))
   }, [refresh])
+
+  useEffect(() => {
+    const onUpdate = () => setUpdateReady(true)
+    window.addEventListener('weft:update', onUpdate)
+    // The service worker only changes when its own file changes. Comparing the
+    // server version catches an app-only deploy while a tab stays open.
+    const checkVersion = () => {
+      api
+        .version()
+        .then(({ version }) => {
+          if (baselineVersion.current && baselineVersion.current !== version) setUpdateReady(true)
+          else baselineVersion.current = version
+        })
+        .catch(() => {})
+    }
+    checkVersion()
+    const versionPoll = window.setInterval(checkVersion, 5 * 60 * 1000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') checkVersion()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('weft:update', onUpdate)
+      window.clearInterval(versionPoll)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   useEffect(() => {
     if (!me?.authenticated) return
@@ -101,6 +131,7 @@ export default function App() {
           demo={me.demo}
           onDone={() => {
             api.me().then((m) => {
+              setCSRF(m.csrf ?? '')
               setMe(m)
               void refresh()
             })
@@ -174,7 +205,8 @@ export default function App() {
           <button
             className="btn btn--quiet btn--sm"
             onClick={() => {
-              api.logout().then(() => window.location.reload())
+              setCSRF('')
+              api.logout().catch(() => {}).finally(() => window.location.reload())
             }}
           >
             <Icon name="power" />
@@ -183,7 +215,9 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="canvas">{page}</main>
+      <main className="canvas">
+        <Suspense fallback={<div className="boot"><Mark size={26} /></div>}>{page}</Suspense>
+      </main>
 
       <nav className="tabbar">
         {nav.map((item) => {
@@ -206,6 +240,17 @@ export default function App() {
           )
         })}
       </nav>
+      {updateReady && (
+        <div className="update-banner" role="status">
+          <span>{t('新版本已就绪')}</span>
+          <button
+            className="btn btn--primary btn--sm"
+            onClick={() => window.dispatchEvent(new CustomEvent('weft:apply-update'))}
+          >
+            {t('刷新面板')}
+          </button>
+        </div>
+      )}
       <Toaster />
     </div>
   )

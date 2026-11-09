@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import CodeMirror from '@uiw/react-codemirror'
+import { yaml } from '@codemirror/lang-yaml'
+import { oneDark } from '@codemirror/theme-one-dark'
+import { diffLines, type Change } from 'diff'
 import { ago, api, type RuleSet } from '../api'
 import { Icon } from '../icons'
 import { Copy, Drawer, Empty, Modal, notify } from '../ui'
@@ -12,8 +16,12 @@ const blankContent = `rules:
   - MATCH,PROXY
 `
 
-export function Rules({ state, refresh }: PageProps) {
+export function Rules({ state, refresh, theme }: PageProps) {
   const { t } = useTranslation()
+  const dark =
+    theme === 'dark' ||
+    (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const yamlExtensions = useMemo(() => [yaml()], [])
   const [editing, setEditing] = useState<RuleSet | null>(null)
   const [creating, setCreating] = useState(false)
   const [mode, setMode] = useState<Mode>('preset')
@@ -23,6 +31,8 @@ export function Rules({ state, refresh }: PageProps) {
   const [presetKey, setPresetKey] = useState(state.rulePresets[0]?.key ?? '')
   const [sourceURL, setSourceURL] = useState(state.gfwListUrl)
   const [busy, setBusy] = useState(false)
+  const [diff, setDiff] = useState<{ content: string; parts: Change[] } | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const preset = useMemo(
     () => state.rulePresets.find((p) => p.key === presetKey) ?? state.rulePresets[0],
@@ -81,14 +91,14 @@ export function Rules({ state, refresh }: PageProps) {
     }
   }
 
-  async function save() {
+  async function save(contentOverride?: string) {
     if (!editing) return
     setBusy(true)
     try {
       const updated = await api.updateRuleSet(editing.id, {
         name: editing.name,
         description: editing.description,
-        content: editing.content ?? '',
+        content: contentOverride ?? editing.content ?? '',
         source: editing.source,
       })
       setEditing(updated)
@@ -98,6 +108,19 @@ export function Rules({ state, refresh }: PageProps) {
       notify((e as Error).message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function refreshFromSource() {
+    if (!editing) return
+    setRefreshing(true)
+    try {
+      const res = await api.refreshRuleSet(editing.id)
+      setDiff({ content: res.content, parts: diffLines(editing.content ?? '', res.content) })
+    } catch (e) {
+      notify((e as Error).message)
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -163,7 +186,14 @@ export function Rules({ state, refresh }: PageProps) {
                   }}
                 >
                   <td data-label={t('名称')}>
-                    <span className="cell-main">{rs.name}</span>
+                    <span className="cell-main">
+                      {rs.name}
+                      {!!rs.warningCount && (
+                        <span className="pill pill--warn" title={t('{{n}} 条引用警告', { n: rs.warningCount })}>
+                          {rs.warningCount}
+                        </span>
+                      )}
+                    </span>
                     <span className="cell-sub">{rs.description || rs.source || '—'}</span>
                   </td>
                   <td className="num" data-label={t('规则数')}>
@@ -281,16 +311,17 @@ export function Rules({ state, refresh }: PageProps) {
           )}
 
           {mode === 'blank' && (
-            <label className="field">
+            <div className="field">
               <span>{t('规则内容（YAML）')}</span>
-              <textarea
-                className="code-input"
-                rows={14}
+              <CodeMirror
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
+                height="320px"
+                extensions={yamlExtensions}
+                theme={dark ? oneDark : 'light'}
+                onChange={setContent}
               />
               <span className="field__hint">{t('只允许 rules、rule-providers、proxy-groups 三个键。')}</span>
-            </label>
+            </div>
           )}
         </Modal>
       )}
@@ -317,18 +348,30 @@ export function Rules({ state, refresh }: PageProps) {
             })}
             {editing.usedBy ? ` · ${t('{{n}} 个编排', { n: editing.usedBy })}` : ''}
           </p>
-          <label className="field">
+          <div className="field">
             <span>{t('规则内容（YAML）')}</span>
-            <textarea
-              className="code-input"
-              rows={22}
-              spellCheck={false}
+            <CodeMirror
               value={editing.content ?? ''}
-              onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+              height="420px"
+              extensions={yamlExtensions}
+              theme={dark ? oneDark : 'light'}
+              onChange={(value) => setEditing({ ...editing, content: value })}
             />
             <span className="field__hint">{t('只允许 rules、rule-providers、proxy-groups 三个键。')}</span>
-          </label>
-          {editing.source && (
+          </div>
+          {!!editing.warnings?.length && (
+            <div className="warnings">
+              <p className="label">{t('引用警告')}</p>
+              <ul className="facts">
+                {editing.warnings.map((w) => (
+                  <li key={w}>
+                    <span>{w}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {editing.source && !editing.source.startsWith('preset:') && (
             <p className="prose muted">
               {t('规则集来源')}：<span className="mono">{editing.source}</span>
             </p>
@@ -337,6 +380,11 @@ export function Rules({ state, refresh }: PageProps) {
             <button className="btn btn--primary" disabled={busy} onClick={() => void save()}>
               {t('保存')}
             </button>
+            {(editing.source.startsWith('http://') || editing.source.startsWith('https://')) && (
+              <button className="btn btn--quiet" disabled={refreshing} onClick={() => void refreshFromSource()}>
+                {refreshing ? t('拉取中…') : t('从来源刷新')}
+              </button>
+            )}
             <Copy value={editing.content ?? ''} label={t('复制')} />
             <button className="btn btn--danger btn--sm" onClick={() => void remove(editing)}>
               <Icon name="trash" />
@@ -344,6 +392,51 @@ export function Rules({ state, refresh }: PageProps) {
             </button>
           </div>
         </Drawer>
+      )}
+
+      {diff && (
+        <Modal
+          title={t('规则差异')}
+          onClose={() => setDiff(null)}
+          wide
+          footer={
+            <>
+              <button className="btn btn--quiet" onClick={() => setDiff(null)}>
+                {t('取消')}
+              </button>
+              <button
+                className="btn btn--primary"
+                disabled={busy}
+                onClick={() => {
+                  const content = diff.content
+                  setDiff(null)
+                  void save(content)
+                }}
+              >
+                {t('应用并保存')}
+              </button>
+            </>
+          }
+        >
+          <p className="prose muted">{t('绿色为新增，红色为删除，灰色为未变。')}</p>
+          <pre className="code code--preview diff-view">
+            {diff.parts.map((part, i) =>
+              part.value
+                .replace(/\n$/, '')
+                .split('\n')
+                .map((line, j) => (
+                  <span
+                    key={`${i}-${j}`}
+                    className={part.added ? 'diff-added' : part.removed ? 'diff-removed' : 'diff-same'}
+                  >
+                    {part.added ? '+ ' : part.removed ? '- ' : '  '}
+                    {line}
+                    {'\n'}
+                  </span>
+                )),
+            )}
+          </pre>
+        </Modal>
       )}
     </>
   )

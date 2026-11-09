@@ -1,5 +1,5 @@
 // weft service worker: the shell works offline, the data never comes from cache.
-const CACHE = 'weft-v1'
+const CACHE = 'weft-v2'
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -11,12 +11,11 @@ const SHELL = [
 ]
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting()),
-  )
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)))
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {

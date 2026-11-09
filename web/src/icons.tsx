@@ -80,6 +80,20 @@ const shapes: Record<string, ReactElement> = {
       <path d="M9.9 9.9 16.4 16.4M14.2 16.4h2.2v-2.2" />
     </>
   ),
+  pencil: (
+    <>
+      <path d="M4.2 15.8 3.6 17l1.2-.6 9.1-9.1-1.2-1.2z" />
+      <path d="m12.1 4.3 1.2-1.2a1.4 1.4 0 0 1 2 0l1.6 1.6a1.4 1.4 0 0 1 0 2l-1.2 1.2" />
+    </>
+  ),
+  share: (
+    <>
+      <circle cx="6" cy="10" r="2.1" />
+      <circle cx="14.2" cy="5.4" r="2.1" />
+      <circle cx="14.2" cy="14.6" r="2.1" />
+      <path d="m7.9 9 4.4-2.6M7.9 11l4.4 2.6" />
+    </>
+  ),
   search: (
     <>
       <circle cx="8.9" cy="8.9" r="5.4" />

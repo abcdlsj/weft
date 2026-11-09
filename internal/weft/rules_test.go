@@ -2,6 +2,7 @@ package weft
 
 import (
 	"encoding/base64"
+	"net"
 	"strings"
 	"testing"
 
@@ -84,3 +85,48 @@ func TestValidateRuleSetRejectsUnknownKeys(t *testing.T) {
 }
 
 func yamlUnmarshal(data []byte, out any) error { return yaml.Unmarshal(data, out) }
+
+func TestRuleWarnings(t *testing.T) {
+	warnings := RuleWarnings(`rules:
+  - RULE-SET,missing,PROXY
+  - DOMAIN-SUFFIX,example.com,NoSuchGroup
+  - DOMAIN-SUFFIX,ok.com,DIRECT
+rule-providers:
+  ads:
+    type: http
+    behavior: domain
+    url: https://example.com/ads.yaml
+    path: ./ruleset/ads.yaml
+    interval: 86400
+`)
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "missing") || !strings.Contains(joined, "NoSuchGroup") {
+		t.Fatalf("warnings missed a bad reference: %#v", warnings)
+	}
+	if strings.Contains(joined, "ok.com") {
+		t.Fatalf("valid rule produced a warning: %#v", warnings)
+	}
+}
+
+func TestDisallowedIP(t *testing.T) {
+	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "::1", "fd00::1"} {
+		ip := net.ParseIP(raw)
+		if !disallowedIP(ip) {
+			t.Errorf("%s should be blocked", raw)
+		}
+	}
+	for _, raw := range []string{"1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"} {
+		if disallowedIP(net.ParseIP(raw)) {
+			t.Errorf("%s should be allowed", raw)
+		}
+	}
+}
+
+func TestFetchRuleSourceRejectsLoopback(t *testing.T) {
+	if _, err := FetchRuleSource("http://127.0.0.1:9/rules.txt"); err == nil {
+		t.Fatal("loopback fetch should be rejected")
+	}
+	if _, err := FetchRuleSource("file:///etc/passwd"); err == nil {
+		t.Fatal("file scheme should be rejected")
+	}
+}

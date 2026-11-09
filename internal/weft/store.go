@@ -109,6 +109,13 @@ CREATE TABLE IF NOT EXISTS sub_access (
   ip TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sub_access ON sub_access (subscription_id, at DESC);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  csrf TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
 CREATE TABLE IF NOT EXISTS rule_sets (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -702,19 +709,65 @@ FROM sub_access WHERE subscription_id=? GROUP BY device ORDER BY MAX(at) DESC`, 
 	return out, rows.Err()
 }
 
+// ---------- sessions ----------
+
+// Session is a panel login. Persisting it in SQLite keeps a restart from
+// signing every device out.
+type Session struct {
+	Token     string
+	CSRF      string
+	CreatedAt int64
+	ExpiresAt int64
+}
+
+func (s *Store) CreateSession(token, csrf string, expiresAt int64) error {
+	_, err := s.db.Exec(`INSERT INTO sessions (token,csrf,created_at,expires_at) VALUES (?,?,?,?)`,
+		token, csrf, now(), expiresAt)
+	return err
+}
+
+func (s *Store) Session(token string) (*Session, error) {
+	var sess Session
+	err := s.db.QueryRow(`SELECT token,csrf,created_at,expires_at FROM sessions WHERE token=?`, token).
+		Scan(&sess.Token, &sess.CSRF, &sess.CreatedAt, &sess.ExpiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &sess, err
+}
+
+func (s *Store) DeleteSession(token string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE token=?`, token)
+	return err
+}
+
+func (s *Store) DeleteOtherSessions(keep string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE token<>?`, keep)
+	return err
+}
+
+func (s *Store) CleanupSessions(at int64) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, at)
+	return err
+}
+
 // ---------- rule sets ----------
 
 // RuleSet is a user-editable slice of mihomo routing: the `rules` list, the
 // `rule-providers` it references, and any extra proxy groups those rules use.
 // It is stored as a small YAML document so the panel can stay a text editor.
 type RuleSet struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Content     string `json:"content"`
-	Source      string `json:"source"`
-	UpdatedAt   int64  `json:"updatedAt"`
-	CreatedAt   int64  `json:"createdAt"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Content       string   `json:"content"`
+	Source        string   `json:"source"`
+	UpdatedAt     int64    `json:"updatedAt"`
+	CreatedAt     int64    `json:"createdAt"`
+	Warnings      []string `json:"warnings,omitempty"`
+	RuleCount     int      `json:"ruleCount,omitempty"`
+	ProviderCount int      `json:"providerCount,omitempty"`
+	UsedBy        int      `json:"usedBy,omitempty"`
 }
 
 func (s *Store) CreateRuleSet(rs RuleSet) (*RuleSet, error) {

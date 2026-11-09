@@ -19,6 +19,8 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
   const [confirmNext, setConfirmNext] = useState('')
   const [template, setTemplate] = useState(state.defaultTemplate || state.builtinTemplate)
   const [busy, setBusy] = useState(false)
+  const [restoreBusy, setRestoreBusy] = useState(false)
+  const [restoreWarnings, setRestoreWarnings] = useState<string[]>([])
 
   const usingBuiltin = !state.defaultTemplate
 
@@ -38,6 +40,27 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
       notify((e as Error).message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function restore(file: File) {
+    setRestoreBusy(true)
+    setRestoreWarnings([])
+    try {
+      const data = JSON.parse(await file.text())
+      const res = await api.restore(data)
+      setRestoreWarnings(res.warnings)
+      await refresh()
+      notify(
+        t('已恢复 {{rules}} 套规则、{{bundles}} 条编排', {
+          rules: res.ruleSetsCreated + res.ruleSetsUpdated,
+          bundles: res.bundlesCreated + res.bundlesUpdated,
+        }),
+      )
+    } catch (e) {
+      notify((e as Error).message)
+    } finally {
+      setRestoreBusy(false)
     }
   }
 
@@ -129,7 +152,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
         <section className="panel span-12">
           <header>
             <h2>{t('面板口令')}</h2>
-            <span className="meta">{t('保存在 weft.db，走 PBKDF2')}</span>
+            <span className="meta">{t('保存在 weft.db，走 Argon2id')}</span>
           </header>
           <div className="form-grid">
             <label className="field">
@@ -171,7 +194,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
             <button
               className="btn btn--quiet"
               onClick={() => {
-                api.logout().then(() => window.location.reload())
+                api.logout().catch(() => {}).finally(() => window.location.reload())
               }}
             >
               <Icon name="power" />
@@ -209,6 +232,45 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
               {t('恢复内置模板')}
             </button>
           </div>
+        </section>
+        <section className="panel span-12">
+          <header>
+            <h2>{t('备份与恢复')}</h2>
+            <span className="meta">{t('不含机器 token 与订阅凭据')}</span>
+          </header>
+          <p className="prose">
+            {t('导出默认模板、规则集和编排；恢复时同名规则集、同路径编排会原地更新，不生成重复项。')}
+          </p>
+          <div className="row-actions">
+            <button className="btn btn--primary" onClick={() => window.location.assign('/api/backup')}>
+              {t('导出备份')}
+            </button>
+            <label className="btn btn--quiet" aria-disabled={restoreBusy}>
+              {restoreBusy ? t('恢复中…') : t('导入备份')}
+              <input
+                type="file"
+                accept="application/json,.json"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void restore(file)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          </div>
+          {restoreWarnings.length > 0 && (
+            <div className="warnings">
+              <p className="label">{t('恢复时跳过的内容')}</p>
+              <ul className="facts">
+                {restoreWarnings.map((w) => (
+                  <li key={w}>
+                    <span>{w}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       </div>
     </>

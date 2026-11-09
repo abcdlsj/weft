@@ -11,9 +11,31 @@ const formatLabel: Record<string, string> = {
   text: '明文链接',
 }
 
+function clashLink(url: string) {
+  return `clash://install-config?url=${encodeURIComponent(url)}`
+}
+
+function shadowrocketLink(url: string, name: string) {
+  return `shadowrocket://add/sub://${encodeURIComponent(btoa(url))}?remark=${encodeURIComponent(name)}`
+}
+
+function singboxLink(url: string, name: string) {
+  return `sing-box://import-remote-profile?url=${encodeURIComponent(url)}#${encodeURIComponent(name)}`
+}
+
 function randomBearer() {
   const bytes = crypto.getRandomValues(new Uint8Array(24))
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function ClientLink({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="client-link">
+      <p className="label">{label}</p>
+      <code className="mono">{value}</code>
+      <Copy value={value} />
+    </div>
+  )
 }
 
 export function Subscriptions({ state, refresh }: PageProps) {
@@ -27,6 +49,9 @@ export function Subscriptions({ state, refresh }: PageProps) {
   const [fresh, setFresh] = useState<{ label: string; url: string } | null>(null)
   const [authSub, setAuthSub] = useState<Subscription | null>(null)
   const [bearerDraft, setBearerDraft] = useState('')
+  const [renaming, setRenaming] = useState<Subscription | null>(null)
+  const [labelDraft, setLabelDraft] = useState('')
+  const [sharing, setSharing] = useState<Subscription | null>(null)
 
   const url = (s: Subscription) =>
     `${state.publicBase}/sub/${s.token}${s.accessKey ? `?key=${s.accessKey}` : ''}`
@@ -49,7 +74,7 @@ export function Subscriptions({ state, refresh }: PageProps) {
 
   async function patch(
     s: Subscription,
-    body: { enabled?: boolean; format?: string; bearer?: string; rotate?: boolean },
+    body: { label?: string; enabled?: boolean; format?: string; bearer?: string; rotate?: boolean },
   ) {
     const res = await api.patchSubscription(s.id, body)
     if (res.url) setFresh({ label: s.label || t('未命名'), url: res.url })
@@ -149,6 +174,19 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
                     <option value="text">{t('明文')}</option>
                   </select>
                   <button
+                    className="icon-btn"
+                    aria-label={t('重命名')}
+                    onClick={() => {
+                      setRenaming(s)
+                      setLabelDraft(s.label)
+                    }}
+                  >
+                    <Icon name="pencil" />
+                  </button>
+                  <button className="icon-btn" aria-label={t('导入到客户端')} onClick={() => setSharing(s)}>
+                    <Icon name="share" />
+                  </button>
+                  <button
                     className="btn btn--quiet btn--sm"
                     onClick={() => {
                       setAuthSub(s)
@@ -203,6 +241,52 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
           <code className="mono">?tag=living-room AppleTV</code>。
         </p>
       </section>
+
+      {renaming && (
+        <Modal
+          title={t('重命名订阅')}
+          onClose={() => setRenaming(null)}
+          footer={
+            <>
+              <button className="btn btn--quiet" onClick={() => setRenaming(null)}>
+                {t('取消')}
+              </button>
+              <button
+                className="btn btn--primary"
+                disabled={!labelDraft.trim()}
+                onClick={() => {
+                  void patch(renaming, { label: labelDraft.trim() })
+                    .then(() => setRenaming(null))
+                    .catch((e) => notify((e as Error).message))
+                }}
+              >
+                {t('保存')}
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            <span>{t('名称')}</span>
+            <input
+              autoFocus
+              value={labelDraft}
+              placeholder={t('主力订阅')}
+              onChange={(e) => setLabelDraft(e.target.value)}
+            />
+            <span className="field__hint">{t('客户端下次拉取时按这个名称显示 profile。')}</span>
+          </label>
+        </Modal>
+      )}
+
+      {sharing && (
+        <Modal title={`${sharing.label || t('未命名')} · ${t('导入到客户端')}`} onClose={() => setSharing(null)} wide>
+          <p className="prose muted">{t('链接里已经包含访问凭据；不要把它发到公开的地方。')}</p>
+          <ClientLink label="Clash Verge / mihomo" value={clashLink(url(sharing))} />
+          <ClientLink label="Shadowrocket" value={shadowrocketLink(url(sharing), sharing.label || t('未命名'))} />
+          <ClientLink label="sing-box" value={singboxLink(url(sharing), sharing.label || t('未命名'))} />
+          <ClientLink label={t('订阅地址')} value={url(sharing)} />
+        </Modal>
+      )}
 
       {authSub && (
         <Modal

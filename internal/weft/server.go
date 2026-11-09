@@ -5,21 +5,23 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
+	"golang.org/x/crypto/argon2"
 
 	webassets "github.com/abcdlsj/weft/web"
 )
@@ -30,21 +32,28 @@ type Server struct {
 	store    *Store
 	mux      *http.ServeMux
 	demo     bool
-	mu       sync.Mutex
-	sessions map[string]int64 // token -> expiry unix
+	loginLim *rateLimiter
+	subLim   *rateLimiter
 }
 
 func NewServer(st *Store, demo bool) *Server {
-	s := &Server{store: st, mux: http.NewServeMux(), demo: demo, sessions: map[string]int64{}}
+	s := &Server{
+		store:    st,
+		mux:      http.NewServeMux(),
+		demo:     demo,
+		loginLim: newRateLimiter(10, 5*time.Minute),
+		subLim:   newRateLimiter(120, time.Minute),
+	}
 	s.routes()
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler { return securityHeaders(s.mux) }
 
 func (s *Server) routes() {
 	// public
 	s.mux.HandleFunc("GET /api/me", s.handleMe)
+	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/setup", s.handleSetup)
 	s.mux.HandleFunc("POST /api/agent/report", s.handleAgentReport)
@@ -64,9 +73,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/bundles/{id}", s.authed(s.handleUpdateBundle))
 	s.mux.HandleFunc("DELETE /api/bundles/{id}", s.authed(s.handleDeleteBundle))
 	s.mux.HandleFunc("GET /api/bundles/{id}/preview", s.authed(s.handlePreview))
+	s.mux.HandleFunc("POST /api/bundles/preview", s.authed(s.handlePreviewDraft))
 	s.mux.HandleFunc("POST /api/rulesets", s.authed(s.handleCreateRuleSet))
 	s.mux.HandleFunc("POST /api/rulesets/import", s.authed(s.handleImportRuleSet))
 	s.mux.HandleFunc("GET /api/rulesets/{id}", s.authed(s.handleRuleSet))
+	s.mux.HandleFunc("POST /api/rulesets/{id}/refresh", s.authed(s.handleRefreshRuleSet))
 	s.mux.HandleFunc("PUT /api/rulesets/{id}", s.authed(s.handleUpdateRuleSet))
 	s.mux.HandleFunc("DELETE /api/rulesets/{id}", s.authed(s.handleDeleteRuleSet))
 	s.mux.HandleFunc("POST /api/subscriptions", s.authed(s.handleCreateSubscription))
@@ -75,6 +86,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/subscriptions/{id}/qr.png", s.authed(s.handleQR))
 	s.mux.HandleFunc("POST /api/password", s.authed(s.handlePassword))
 	s.mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettings))
+	s.mux.HandleFunc("GET /api/backup", s.authed(s.handleBackup))
+	s.mux.HandleFunc("POST /api/backup", s.authed(s.handleRestore))
 
 	// panel
 	s.mux.HandleFunc("GET /", s.handleStatic)
@@ -84,27 +97,57 @@ func (s *Server) routes() {
 
 func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.authenticated(r) {
+		sess, ok := s.session(r)
+		if !ok {
 			writeErr(w, http.StatusUnauthorized, "未登录")
 			return
+		}
+		if !safeMethod(r.Method) {
+			if r.ContentLength != 0 && !isJSONRequest(r) {
+				writeErr(w, http.StatusUnsupportedMediaType, "请求必须是 application/json")
+				return
+			}
+			got := r.Header.Get("X-CSRF-Token")
+			if subtle.ConstantTimeCompare([]byte(got), []byte(sess.CSRF)) != 1 {
+				writeErr(w, http.StatusForbidden, "CSRF token 无效")
+				return
+			}
 		}
 		next(w, r)
 	}
 }
 
-func (s *Server) authenticated(r *http.Request) bool {
+func safeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+func isJSONRequest(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
+}
+
+func (s *Server) session(r *http.Request) (*Session, bool) {
 	c, err := r.Cookie(sessionCookie)
-	if err != nil {
-		return false
+	if err != nil || c.Value == "" {
+		return nil, false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exp, ok := s.sessions[c.Value]
-	if !ok || exp < now() {
-		delete(s.sessions, c.Value)
-		return false
+	sess, err := s.store.Session(c.Value)
+	if err != nil || sess.ExpiresAt < now() {
+		if sess != nil {
+			s.store.DeleteSession(sess.Token)
+		}
+		return nil, false
 	}
-	return true
+	return sess, true
+}
+
+func (s *Server) authenticated(r *http.Request) bool {
+	_, ok := s.session(r)
+	return ok
 }
 
 // PasswordSet reports whether the panel password has been created.
@@ -115,7 +158,53 @@ func (s *Server) passwordSet() bool {
 	return err == nil
 }
 
-func hashPassword(password, salt string) (string, error) {
+// Password hashes are Argon2id PHC strings. The old PBKDF2 format is still
+// verified and transparently upgraded on the next successful login.
+const (
+	argonMemory  = 32 * 1024 // KiB
+	argonTime    = 3
+	argonThreads = 2
+	argonKeyLen  = 32
+)
+
+func newPasswordHash(password string) (string, error) {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
+		argonMemory, argonTime, argonThreads,
+		base64.RawStdEncoding.EncodeToString(salt),
+		base64.RawStdEncoding.EncodeToString(key)), nil
+}
+
+func verifyPasswordHash(encoded, password string) bool {
+	if !strings.HasPrefix(encoded, "$argon2id$") {
+		return false
+	}
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 {
+		return false
+	}
+	var memory, iterations uint32
+	var threads uint8
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &threads); err != nil {
+		return false
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil {
+		return false
+	}
+	want, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil {
+		return false
+	}
+	got := argon2.IDKey([]byte(password), salt, iterations, memory, threads, uint32(len(want)))
+	return subtle.ConstantTimeCompare(want, got) == 1
+}
+
+func legacyPasswordHash(password, salt string) (string, error) {
 	key, err := pbkdf2.Key(sha256.New, password, []byte(salt), 120_000, 32)
 	if err != nil {
 		return "", err
@@ -128,42 +217,47 @@ func hashPassword(password, salt string) (string, error) {
 func SetPassword(st *Store, password string) error { return (&Server{store: st}).setPassword(password) }
 
 func (s *Server) setPassword(password string) error {
-	saltB := make([]byte, 16)
-	rand.Read(saltB)
-	salt := hex.EncodeToString(saltB)
-	h, err := hashPassword(password, salt)
+	h, err := newPasswordHash(password)
 	if err != nil {
 		return err
 	}
-	if err := s.store.SetSetting("password_salt", salt); err != nil {
+	if err := s.store.SetSetting("password_salt", ""); err != nil {
 		return err
 	}
 	return s.store.SetSetting("password_hash", h)
 }
 
 func (s *Server) checkPassword(password string) bool {
-	salt, err := s.store.GetSetting("password_salt")
-	if err != nil {
-		return false
-	}
 	want, err := s.store.GetSetting("password_hash")
 	if err != nil {
 		return false
 	}
-	got, err := hashPassword(password, salt)
+	if strings.HasPrefix(want, "$argon2id$") {
+		return verifyPasswordHash(want, password)
+	}
+	// Legacy PBKDF2: verify, then replace it with Argon2id in place.
+	salt, err := s.store.GetSetting("password_salt")
 	if err != nil {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
+	got, err := legacyPasswordHash(password, salt)
+	if err != nil || subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
+		return false
+	}
+	if err := s.setPassword(password); err != nil {
+		log.Printf("rehashing password: %v", err)
+	}
+	return true
 }
 
-func (s *Server) newSession(w http.ResponseWriter, r *http.Request) {
-	b := make([]byte, 32)
-	rand.Read(b)
-	tok := hex.EncodeToString(b)
-	s.mu.Lock()
-	s.sessions[tok] = now() + 30*86400
-	s.mu.Unlock()
+func (s *Server) newSession(w http.ResponseWriter, r *http.Request) string {
+	tok := newToken()
+	csrf := newToken()
+	expires := now() + 30*86400
+	if err := s.store.CreateSession(tok, csrf, expires); err != nil {
+		log.Printf("creating session: %v", err)
+	}
+	s.store.CleanupSessions(now())
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    tok,
@@ -173,6 +267,7 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) {
 		Secure:   requestIsHTTPS(r),
 		MaxAge:   30 * 86400,
 	})
+	return csrf
 }
 
 func requestIsHTTPS(r *http.Request) bool {
@@ -182,17 +277,34 @@ func requestIsHTTPS(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"version": AgentVersion})
+}
+
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{
-		"authenticated": s.authenticated(r),
+	sess, ok := s.session(r)
+	out := map[string]any{
+		"authenticated": ok,
 		"needsSetup":    !s.passwordSet(),
 		"demo":          s.demo,
-	})
+	}
+	if ok {
+		out["csrf"] = sess.CSRF
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if s.passwordSet() {
 		writeErr(w, http.StatusConflict, "已完成初始化")
+		return
+	}
+	if !s.loginLim.allow(ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For"))) {
+		rateLimited(w, time.Minute)
+		return
+	}
+	if !isJSONRequest(r) {
+		writeErr(w, http.StatusUnsupportedMediaType, "请求必须是 application/json")
 		return
 	}
 	var body struct {
@@ -206,11 +318,20 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.newSession(w, r)
-	writeJSON(w, 200, map[string]any{"ok": true})
+	csrf := s.newSession(w, r)
+	writeJSON(w, 200, map[string]any{"ok": true, "csrf": csrf})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For"))
+	if !s.loginLim.allow(ip) {
+		rateLimited(w, 5*time.Minute)
+		return
+	}
+	if !isJSONRequest(r) {
+		writeErr(w, http.StatusUnsupportedMediaType, "请求必须是 application/json")
+		return
+	}
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -223,15 +344,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "口令错误")
 		return
 	}
-	s.newSession(w, r)
-	writeJSON(w, 200, map[string]any{"ok": true})
+	csrf := s.newSession(w, r)
+	writeJSON(w, 200, map[string]any{"ok": true, "csrf": csrf})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
-		s.mu.Lock()
-		delete(s.sessions, c.Value)
-		s.mu.Unlock()
+		s.store.DeleteSession(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1})
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -257,6 +376,10 @@ func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
 	if err := s.setPassword(body.Next); err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	// keep the device that changed the password signed in, retire the rest
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		s.store.DeleteOtherSessions(c.Value)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
@@ -767,6 +890,10 @@ func (s *Server) handleDeleteBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) bundleNodes(b *Bundle) ([]Host, []Node, error) {
+	return s.nodesForMembers(b.Members)
+}
+
+func (s *Server) nodesForMembers(members []Member) ([]Host, []Node, error) {
 	hosts, err := s.store.ListHosts()
 	if err != nil {
 		return nil, nil, err
@@ -776,7 +903,7 @@ func (s *Server) bundleNodes(b *Bundle) ([]Host, []Node, error) {
 		return nil, nil, err
 	}
 	want := map[string]bool{}
-	for _, m := range b.Members {
+	for _, m := range members {
 		want[m.HostID+"|"+m.Key] = true
 	}
 	var picked []Node
@@ -799,6 +926,33 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.writePreview(w, r, b, hosts, nodes)
+}
+
+// handlePreviewDraft renders a bundle that has not been saved. The editor uses
+// it so node picks, groups, templates and rule sets can be inspected before a
+// write.
+func (s *Server) handlePreviewDraft(w http.ResponseWriter, r *http.Request) {
+	var body bundlePayload
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&body); err != nil {
+		writeErr(w, 400, "请求无效")
+		return
+	}
+	b := Bundle{Name: body.Name, Slug: body.Slug, GroupBy: body.GroupBy, GroupType: body.GroupType,
+		Template: body.Template, Members: body.Members}
+	if body.RuleSetID != nil {
+		b.RuleSetID = *body.RuleSetID
+	}
+	normalizeBundle(&b)
+	hosts, nodes, err := s.nodesForMembers(b.Members)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.writePreview(w, r, &b, hosts, nodes)
+}
+
+func (s *Server) writePreview(w http.ResponseWriter, r *http.Request, b *Bundle, hosts []Host, nodes []Node) {
 	target := r.URL.Query().Get("target")
 	if target == "text" || target == "base64" {
 		links := BuildLinks(hosts, nodes)
@@ -814,12 +968,12 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	body, err := BuildMihomoYAML(*b, hosts, nodes, rs)
+	out, err := BuildMihomoYAML(*b, hosts, nodes, rs)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"body": string(body), "nodes": len(nodes)})
+	writeJSON(w, 200, map[string]any{"body": string(out), "nodes": len(nodes)})
 }
 
 // ---------- subscriptions api ----------
@@ -970,6 +1124,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 // ---------- public subscription ----------
 
 func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
+	ip := ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For"))
+	if !s.subLim.allow(ip) {
+		rateLimited(w, time.Minute)
+		return
+	}
 	sub, err := s.store.SubscriptionByToken(r.PathValue("token"))
 	if err != nil || !sub.Enabled {
 		http.Error(w, "subscription not found", http.StatusNotFound)
@@ -1007,8 +1166,7 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
 		device = sanitizeTag(tag)
 	}
-	s.store.RecordSubscriptionHit(sub.ID, device, ua,
-		ClientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For")))
+	s.store.RecordSubscriptionHit(sub.ID, device, ua, ip)
 	title := strings.TrimSpace(sub.Label)
 	if title == "" {
 		title = b.Name
@@ -1093,6 +1251,7 @@ type ruleSetView struct {
 	CreatedAt     int64  `json:"createdAt"`
 	RuleCount     int    `json:"ruleCount"`
 	ProviderCount int    `json:"providerCount"`
+	WarningCount  int    `json:"warningCount"`
 	UsedBy        int    `json:"usedBy"`
 }
 
@@ -1117,10 +1276,22 @@ func (s *Server) ruleSetViews() ([]ruleSetView, error) {
 		out = append(out, ruleSetView{
 			ID: rs.ID, Name: rs.Name, Description: rs.Description, Source: rs.Source,
 			UpdatedAt: rs.UpdatedAt, CreatedAt: rs.CreatedAt,
-			RuleCount: rules, ProviderCount: providers, UsedBy: used[rs.ID],
+			RuleCount: rules, ProviderCount: providers, WarningCount: len(RuleWarnings(rs.Content)),
+			UsedBy: used[rs.ID],
 		})
 	}
 	return out, nil
+}
+
+func (s *Server) decorateRuleSet(rs *RuleSet) {
+	rs.RuleCount, rs.ProviderCount = CountRules(rs.Content)
+	rs.Warnings = RuleWarnings(rs.Content)
+	bundles, _ := s.store.ListBundles()
+	for _, b := range bundles {
+		if b.RuleSetID == rs.ID {
+			rs.UsedBy++
+		}
+	}
 }
 
 func (s *Server) ruleSetFor(b *Bundle) (*RuleSet, error) {
@@ -1160,6 +1331,7 @@ func (s *Server) handleCreateRuleSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.decorateRuleSet(rs)
 	writeJSON(w, 200, rs)
 }
 
@@ -1169,7 +1341,39 @@ func (s *Server) handleRuleSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "规则集不存在")
 		return
 	}
+	s.decorateRuleSet(rs)
 	writeJSON(w, 200, rs)
+}
+
+func (s *Server) handleRefreshRuleSet(w http.ResponseWriter, r *http.Request) {
+	rs, err := s.store.RuleSet(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, "规则集不存在")
+		return
+	}
+	if !strings.HasPrefix(rs.Source, "http://") && !strings.HasPrefix(rs.Source, "https://") {
+		writeErr(w, 400, "这套规则集没有可刷新的远程来源")
+		return
+	}
+	data, err := FetchRuleSource(rs.Source)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	content, err := ImportRuleSetContent(data)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if err := ValidateRuleSetContent(content); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"content":  content,
+		"warnings": RuleWarnings(content),
+		"source":   rs.Source,
+	})
 }
 
 func (s *Server) handleUpdateRuleSet(w http.ResponseWriter, r *http.Request) {
@@ -1203,6 +1407,7 @@ func (s *Server) handleUpdateRuleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, _ := s.store.RuleSet(rs.ID)
+	s.decorateRuleSet(updated)
 	writeJSON(w, 200, updated)
 }
 
@@ -1248,6 +1453,7 @@ func (s *Server) handleImportRuleSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.decorateRuleSet(rs)
 	writeJSON(w, 200, rs)
 }
 
@@ -1256,8 +1462,8 @@ func (s *Server) handleImportRuleSet(w http.ResponseWriter, r *http.Request) {
 // the real, possibly Chinese, name.
 func contentDisposition(filename string) string {
 	ext := ".yaml"
-	if strings.HasSuffix(filename, ".txt") {
-		ext = ".txt"
+	if i := strings.LastIndex(filename, "."); i > 0 {
+		ext = filename[i:]
 	}
 	stem := strings.TrimSuffix(filename, ext)
 	ascii := strings.Map(func(r rune) rune {
@@ -1270,7 +1476,7 @@ func contentDisposition(filename string) string {
 		return r
 	}, stem)
 	ascii = strings.TrimSpace(strings.Trim(ascii, "-_ "))
-	if ascii == "" {
+	if strings.Trim(ascii, "-_. ") == "" {
 		ascii = "weft"
 	}
 	return fmt.Sprintf(`attachment; filename="%s%s"; filename*=UTF-8''%s`, ascii, ext, url.PathEscape(filename))

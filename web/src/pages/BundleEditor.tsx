@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, type Bundle } from '../api'
 import { Icon } from '../icons'
-import { Copy, Empty, notify } from '../ui'
+import { Copy, notify } from '../ui'
 import type { PageProps } from '../App'
 
 type Props = PageProps & { id?: string }
@@ -36,6 +36,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
   const [query, setQuery] = useState('')
   const [aliveOnly, setAliveOnly] = useState(false)
   const [preview, setPreview] = useState<{ body: string; nodes: number } | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [tab, setTab] = useState<'yaml' | 'links'>('yaml')
   const [busy, setBusy] = useState(false)
   const [savedID, setSavedID] = useState(existing?.id ?? '')
@@ -69,16 +70,36 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
   const selectedCount = picked.size
 
   useEffect(() => {
-    if (!savedID) return
     let cancelled = false
-    api
-      .preview(savedID, tab === 'yaml' ? 'mihomo' : 'text')
-      .then((res) => !cancelled && setPreview(res))
-      .catch(() => !cancelled && setPreview(null))
+    setPreviewError(null)
+    const timer = window.setTimeout(() => {
+      const members = [...picked].map((k) => {
+        const [hostId, ...rest] = k.split('|')
+        return { hostId, key: rest.join('|') }
+      })
+      api
+        .previewDraft(
+          { groupBy, groupType, template, ruleSetId: ruleSetID, members },
+          tab === 'yaml' ? 'mihomo' : 'text',
+        )
+        .then((res) => {
+          if (!cancelled) {
+            setPreview(res)
+            setPreviewError(null)
+          }
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            setPreview(null)
+            setPreviewError((e as Error).message)
+          }
+        })
+    }, 350)
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
-  }, [savedID, tab, picked, groupBy, groupType])
+  }, [tab, picked, groupBy, groupType, template, ruleSetID])
 
   function toggle(key: string) {
     setPicked((prev) => {
@@ -301,8 +322,8 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
               </button>
             </div>
           </header>
-          {!savedID ? (
-            <Empty title={t('保存后可预览')} body={t('预览读取的是服务端最新的节点上报，先保存再生成。')} />
+          {previewError ? (
+            <p className="form-error">{previewError}</p>
           ) : !preview ? (
             <p className="prose muted">{t('正在生成…')}</p>
           ) : (

@@ -60,6 +60,8 @@ export interface RuleSet {
   createdAt: number
   ruleCount?: number
   providerCount?: number
+  warningCount?: number
+  warnings?: string[]
   usedBy?: number
 }
 
@@ -131,13 +133,40 @@ export interface Me {
   authenticated: boolean
   needsSetup: boolean
   demo: boolean
+  csrf?: string
+}
+
+export interface RefreshResult {
+  content: string
+  warnings?: string[]
+  source: string
+}
+
+export interface RestoreResult {
+  ruleSetsCreated: number
+  ruleSetsUpdated: number
+  bundlesCreated: number
+  bundlesUpdated: number
+  warnings: string[]
+}
+
+let csrfToken = ''
+
+export function setCSRF(token: string) {
+  csrfToken = token
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase()
+  const headers = new Headers(init?.headers)
+  if (init?.body) headers.set('Content-Type', 'application/json')
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && csrfToken) {
+    headers.set('X-CSRF-Token', csrfToken)
+  }
   const res = await fetch(path, {
     credentials: 'include',
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
+    headers,
   })
   const text = await res.text()
   let data: any = null
@@ -157,10 +186,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   me: () => req<Me>('/api/me'),
+  version: () => req<{ version: string }>('/api/version'),
   login: (password: string) =>
-    req<{ ok: boolean }>('/api/login', { method: 'POST', body: JSON.stringify({ password }) }),
+    req<{ ok: boolean; csrf?: string }>('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
   setup: (password: string) =>
-    req<{ ok: boolean }>('/api/setup', { method: 'POST', body: JSON.stringify({ password }) }),
+    req<{ ok: boolean; csrf?: string }>('/api/setup', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
   logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   state: () => req<FleetState>('/api/state'),
   createHost: (name: string, kind: HostKind = 'agent') =>
@@ -195,6 +231,11 @@ export const api = {
   deleteBundle: (id: string) => req<{ ok: boolean }>(`/api/bundles/${id}`, { method: 'DELETE' }),
   preview: (id: string, target: 'mihomo' | 'text' | 'base64') =>
     req<{ body: string; nodes: number }>(`/api/bundles/${id}/preview?target=${target}`),
+  previewDraft: (body: BundlePayload, target: 'mihomo' | 'text' | 'base64') =>
+    req<{ body: string; nodes: number }>(`/api/bundles/preview?target=${target}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   createSubscription: (body: { bundleId: string; label: string; format: string }) =>
     req<{ subscription: Subscription; url: string }>('/api/subscriptions', {
       method: 'POST',
@@ -225,6 +266,10 @@ export const api = {
   importRuleSet: (body: { name: string; url: string; description?: string }) =>
     req<RuleSet>('/api/rulesets/import', { method: 'POST', body: JSON.stringify(body) }),
   ruleSet: (id: string) => req<RuleSet>(`/api/rulesets/${id}`),
+  refreshRuleSet: (id: string) =>
+    req<RefreshResult>(`/api/rulesets/${id}/refresh`, { method: 'POST' }),
+  restore: (body: unknown) =>
+    req<RestoreResult>('/api/backup', { method: 'POST', body: JSON.stringify(body) }),
 }
 
 export interface BundlePayload {

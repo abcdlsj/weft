@@ -1,8 +1,10 @@
 package weft
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -10,6 +12,15 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	maxRuleSetBytes   = 4 << 20
+	maxRuleCount      = 20000
+	maxProviderCount  = 200
+	maxImportedRules  = 20000
+	ruleFetchTimeout  = 20 * time.Second
+	ruleFetchRedirect = 3
 )
 
 // GFWListURL is the canonical gfwlist export. Importing it is the quickest way
@@ -136,6 +147,9 @@ func RulePresets() []RulePreset {
 // keys are rejected so a pasted full config cannot silently override DNS or
 // ports behind the panel's back.
 func ValidateRuleSetContent(content string) error {
+	if len(content) > maxRuleSetBytes {
+		return fmt.Errorf("规则内容超过 %d MB", maxRuleSetBytes>>20)
+	}
 	doc, err := decodeRuleSet(content)
 	if err != nil {
 		return err
@@ -155,6 +169,9 @@ func ValidateRuleSetContent(content string) error {
 		if !ok {
 			return fmt.Errorf("rules 必须是列表")
 		}
+		if len(list) > maxRuleCount {
+			return fmt.Errorf("规则条数超过 %d", maxRuleCount)
+		}
 		for _, item := range list {
 			if _, ok := item.(string); !ok {
 				return fmt.Errorf("rules 的每一项都必须是字符串")
@@ -162,8 +179,12 @@ func ValidateRuleSetContent(content string) error {
 		}
 	}
 	if raw, ok := doc["rule-providers"]; ok {
-		if _, ok := raw.(map[string]any); !ok {
+		providers, ok := raw.(map[string]any)
+		if !ok {
 			return fmt.Errorf("rule-providers 必须是映射")
+		}
+		if len(providers) > maxProviderCount {
+			return fmt.Errorf("rule-providers 超过 %d 个", maxProviderCount)
 		}
 	}
 	if raw, ok := doc["proxy-groups"]; ok {
@@ -295,6 +316,73 @@ func appendMissingGroups(root *yaml.Node, groups []any) {
 	}
 }
 
+// RuleWarnings reports references that probably will not resolve when this
+// rule set is merged into a bundle. They are warnings, not errors: the bundle
+// template or a generated group may still provide the target.
+func RuleWarnings(content string) []string {
+	doc, err := decodeRuleSet(content)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	providers := map[string]bool{}
+	if raw, ok := doc["rule-providers"].(map[string]any); ok {
+		for name := range raw {
+			providers[name] = true
+		}
+	}
+	groups := map[string]bool{
+		"PROXY": true, "AUTO": true, "DIRECT": true, "REJECT": true,
+		"REJECT-DROP": true, "PASS": true, "GLOBAL": true, "COMPATIBLE": true,
+	}
+	if raw, ok := doc["proxy-groups"].([]any); ok {
+		for _, item := range raw {
+			if g, ok := item.(map[string]any); ok {
+				if name := strOr(g["name"], ""); name != "" {
+					groups[name] = true
+				}
+			}
+		}
+	}
+	var warnings []string
+	seen := map[string]bool{}
+	add := func(msg string) {
+		if !seen[msg] {
+			seen[msg] = true
+			warnings = append(warnings, msg)
+		}
+	}
+	rules, _ := doc["rules"].([]any)
+	for _, item := range rules {
+		rule, _ := item.(string)
+		fields := strings.Split(rule, ",")
+		if len(fields) < 2 {
+			continue
+		}
+		kind := strings.ToUpper(strings.TrimSpace(fields[0]))
+		if kind == "MATCH" || kind == "FINAL" {
+			continue
+		}
+		targetIndex := 2
+		if kind == "RULE-SET" && len(fields) >= 3 {
+			provider := strings.TrimSpace(fields[1])
+			if !providers[provider] {
+				add("RULE-SET 引用了未定义的 rule-provider：" + provider)
+			}
+		}
+		if len(fields) <= targetIndex {
+			continue
+		}
+		target := strings.TrimSpace(fields[targetIndex])
+		if target == "" || strings.HasPrefix(target, "(") {
+			continue
+		}
+		if !groups[target] {
+			add("规则目标不在 proxy-groups 中：" + target)
+		}
+	}
+	return warnings
+}
+
 // ImportRuleSetContent turns a remote document into a rule-set document. It
 // accepts: gfwlist base64, a plain domain list, a clash rule-provider payload,
 // a list of mihomo rule lines, or a YAML document with a `rules` key.
@@ -352,6 +440,9 @@ func ImportRuleSetContent(data []byte) (string, error) {
 	if len(rules) == 0 {
 		return "", fmt.Errorf("无法识别这个规则源")
 	}
+	if len(rules) > maxImportedRules {
+		return "", fmt.Errorf("规则条数超过 %d", maxImportedRules)
+	}
 	out, err := yaml.Marshal(map[string]any{"rules": append(rules, "MATCH,PROXY")})
 	return string(out), err
 }
@@ -380,6 +471,9 @@ func gfwToRules(text string) (string, error) {
 	}
 	if len(proxy) == 0 && len(direct) == 0 {
 		return "", fmt.Errorf("列表里没有可用的域名")
+	}
+	if len(proxy) > maxImportedRules {
+		return "", fmt.Errorf("规则条数超过 %d", maxImportedRules)
 	}
 	rules := make([]string, 0, len(direct)+len(proxy)+1)
 	for _, d := range sortedKeys(direct) {
@@ -458,13 +552,33 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// FetchRuleSource downloads a rule source with a hard size and time limit.
+// FetchRuleSource downloads a rule source with a hard size and time limit. It
+// resolves every hop and refuses addresses that are not globally routable, so
+// a compromised admin token cannot use rule import as an SSRF primitive.
 func FetchRuleSource(rawURL string) ([]byte, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return nil, fmt.Errorf("只支持 http 或 https 地址")
 	}
-	client := &http.Client{Timeout: 20 * time.Second}
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext:           safeDialContext(dialer),
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	}
+	client := &http.Client{
+		Timeout:   ruleFetchTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= ruleFetchRedirect {
+				return fmt.Errorf("重定向过多")
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("只支持 http 或 https 地址")
+			}
+			return nil
+		},
+	}
 	resp, err := client.Get(u.String())
 	if err != nil {
 		return nil, fmt.Errorf("拉取失败：%w", err)
@@ -473,11 +587,69 @@ func FetchRuleSource(rawURL string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("远程返回 %s", resp.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxRuleSetBytes+1))
 	if err != nil {
 		return nil, err
 	}
+	if len(data) > maxRuleSetBytes {
+		return nil, fmt.Errorf("远程内容超过 %d MB", maxRuleSetBytes>>20)
+	}
 	return data, nil
+}
+
+func safeDialContext(dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		var lastErr error
+		for _, ip := range ips {
+			if disallowedIP(ip.IP) {
+				continue
+			}
+			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+		}
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, fmt.Errorf("%s 解析到不允许的地址", host)
+	}
+}
+
+func disallowedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	// Ranges that are not globally reachable but are not covered by IsPrivate.
+	for _, cidr := range []string{
+		"100.64.0.0/10",   // CGNAT
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"240.0.0.0/4",     // reserved
+		"2001:db8::/32",   // documentation
+	} {
+		_, network, _ := net.ParseCIDR(cidr)
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // CountRules returns simple counts for the panel. It never fails: a broken rule

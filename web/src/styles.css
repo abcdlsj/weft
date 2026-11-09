@@ -2243,3 +2243,80 @@ textarea:focus-visible {
   outline: none;
   border-color: var(--accent);
 }
+
+/* ---------- update notice, YAML editor, restore diff ---------- */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transform: translateX(-50%);
+  padding: 9px 10px 9px 16px;
+  border: 1px solid var(--control);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cm-editor {
+  margin-top: 8px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.cm-editor.cm-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.cm-scroller {
+  max-height: 460px;
+}
+.diff-view {
+  white-space: pre;
+  word-break: normal;
+}
+.diff-added {
+  color: #1f7a4d;
+}
+.diff-removed {
+  color: #a33a2c;
+}
+.diff-same {
+  color: var(--muted);
+}
+.warnings {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-control);
+  background: var(--raised);
+}
+@media (max-width: 640px) {
+  .update-banner {
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 24px);
+    white-space: normal;
+  }
+}
+
+.client-link {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.client-link code {
+  display: block;
+  margin: 6px 0 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 12px;
+  word-break: break-all;
+}
