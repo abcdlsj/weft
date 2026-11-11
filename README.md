@@ -18,6 +18,7 @@ Running proxies on several machines usually means several subscription URLs, dri
 
 - **Any host, with or without mihomo** — each host runs `weft agent`, which reads either the local mihomo external-controller or the machine's own hysteria2 / xray config, and pushes the result outbound. No inbound ports, no SSH credentials, works behind NAT.
 - **Configs become nodes** — from `/etc/hysteria/config.yaml` and `/usr/local/etc/xray/config.json` the agent reconstructs the client side: password, obfs, certificate SNI, and Reality public keys (derived from the server's private key over X25519). Rotate a password on the box and the subscription follows.
+- **Airport subscriptions** — paste a subscription URL and weft pulls it every six hours: Clash configs, base64 link lists and plain links all parse. Ad nodes (quota, expiry, website banners) are dropped, flags and multiplier tags are stripped from names, and each node keeps the country it belongs to so bundles can group by region instead of by marketing section.
 - **Hand-entered nodes** — paste `hy2://`, `vless://`, `trojan://`, `ss://` or `vmess://` links, or fill a form. Manual nodes are never overwritten by a report.
 - **One subscription URL per bundle** — pick nodes across hosts, get `/sub/<token>` in mihomo YAML, base64 or plain text. Tokens are revocable and track last use. Clients see the subscription label as the profile name, and a bearer token can replace the query key for clients that support custom headers.
 - **See which device pulls what** — the User-Agent becomes a client name (Clash Verge, sing-box, Shadowrocket, mihomo …), grouped per link with hit count, IP and last seen.
@@ -47,6 +48,7 @@ make build          # panel + binary, single file
 | --- | --- | --- |
 | `weft serve` | `cmd/weft`, `internal/weft/server.go` | HTTP API, subscription endpoint, embedded panel, panel password and sessions |
 | link parsing | `internal/weft/proxyparse.go` | share link → mihomo proxy map, used by both the API and the panel preview |
+| subscription sources | `internal/weft/source.go` | fetch, detect format, drop banners and duplicates, derive region, refresh loop |
 | `weft agent` | `cmd/weft`, `internal/weft/agent.go`, `mihomo.go`, `serviceconfig.go` | reads local sources and reports proxies outbound |
 | store | `internal/weft/store.go` | SQLite: hosts, nodes, bundles, subscriptions, reports, access log, settings |
 | subscription builder | `internal/weft/sub.go` | template-driven mihomo YAML, base64 and plain link lists |

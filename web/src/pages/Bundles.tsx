@@ -8,6 +8,7 @@ import type { PageProps } from '../App'
 const groupByLabel: Record<string, string> = {
   host: '按机器分组',
   type: '按协议分组',
+  region: '按地区分组',
   flat: '不分组',
 }
 

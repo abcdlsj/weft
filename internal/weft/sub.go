@@ -46,12 +46,13 @@ type bundleNode struct {
 	NodeName string
 	Display  string
 	Type     string
+	Region   string
 	Alive    bool
 	DelayMS  int
 	Raw      map[string]any
 }
 
-func namespaced(raw json.RawMessage, hostName, nodeName string) (bundleNode, bool) {
+func namespaced(raw json.RawMessage, hostName, nodeName, region string) (bundleNode, bool) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
 		return bundleNode{}, false
@@ -64,6 +65,7 @@ func namespaced(raw json.RawMessage, hostName, nodeName string) (bundleNode, boo
 		NodeName: nodeName,
 		Display:  display,
 		Type:     strings.ToUpper(typ),
+		Region:   region,
 		Raw:      m,
 	}, true
 }
@@ -78,7 +80,7 @@ func BuildMihomoYAML(b Bundle, hosts []Host, nodes []Node, ruleSets ...*RuleSet)
 	}
 	var bn []bundleNode
 	for _, n := range nodes {
-		item, ok := namespaced(n.Raw, hostNames[n.HostID], n.Name)
+		item, ok := namespaced(n.Raw, hostNames[n.HostID], n.Name, n.Region)
 		if !ok {
 			continue
 		}
@@ -220,6 +222,38 @@ func nodeOf(v any) *yaml.Node {
 
 func groupPlan(b Bundle, nodes []bundleNode, all []string) ([]any, []any) {
 	switch b.GroupBy {
+	case "region":
+		// One group per country, which is what keeps a 30-node airport from
+		// turning the client's picker into a wall of rows.
+		byRegion := map[string][]string{}
+		for _, n := range nodes {
+			region := n.Region
+			if region == "" {
+				region = otherRegion
+			}
+			byRegion[region] = append(byRegion[region], n.Display)
+		}
+		keys := make([]string, 0, len(byRegion))
+		for k := range byRegion {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			if regionRank(keys[i]) != regionRank(keys[j]) {
+				return regionRank(keys[i]) < regionRank(keys[j])
+			}
+			return keys[i] < keys[j]
+		})
+		var groups []any
+		var entry []any
+		for _, k := range keys {
+			groups = append(groups, map[string]any{
+				"name": k, "type": b.GroupType, "proxies": byRegion[k],
+			})
+			entry = append(entry, k)
+		}
+		entry = append(entry, "AUTO")
+		groups = append(groups, map[string]any{"name": "PROXY", "type": "select", "proxies": entry})
+		return entry, groups
 	case "type":
 		byType := map[string][]string{}
 		for _, n := range nodes {

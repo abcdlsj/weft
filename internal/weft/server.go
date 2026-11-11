@@ -65,6 +65,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/hosts", s.authed(s.handleCreateHost))
 	s.mux.HandleFunc("DELETE /api/hosts/{id}", s.authed(s.handleDeleteHost))
 	s.mux.HandleFunc("PATCH /api/hosts/{id}", s.authed(s.handlePatchHost))
+	s.mux.HandleFunc("POST /api/hosts/{id}/refresh", s.authed(s.handleRefreshHost))
 	s.mux.HandleFunc("POST /api/hosts/{id}/nodes", s.authed(s.handleCreateNode))
 	s.mux.HandleFunc("PUT /api/hosts/{id}/nodes/{key}", s.authed(s.handleUpdateNode))
 	s.mux.HandleFunc("DELETE /api/hosts/{id}/nodes/{key}", s.authed(s.handleDeleteNode))
@@ -428,8 +429,17 @@ type hostView struct {
 // An agent speaks only when its inventory changes, plus an hourly heartbeat,
 // so a host stays online through one missed beat and is written off after six.
 func hostStatus(h Host) string {
-	if h.Kind == HostStatic {
+	switch h.Kind {
+	case HostStatic:
 		return "manual"
+	case HostSource:
+		if h.SubCheckedAt == 0 {
+			return "never"
+		}
+		if h.SubError != "" {
+			return "offline"
+		}
+		return "online"
 	}
 	switch {
 	case h.LastSeen == 0:
@@ -598,6 +608,7 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 		Kind string `json:"kind"`
+		URL  string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "请求无效")
@@ -608,6 +619,26 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器名需非空且不含空格或斜杠")
 		return
 	}
+	if NormalizeHostKind(body.Kind) == HostSource {
+		rawURL := strings.TrimSpace(body.URL)
+		if rawURL == "" {
+			writeErr(w, 400, "订阅地址不能为空")
+			return
+		}
+		h, err := s.store.CreateSourceHost(name, rawURL)
+		if err != nil {
+			writeErr(w, 409, "机器名已存在："+name)
+			return
+		}
+		// Pull once now so the panel never shows an empty source the admin has
+		// to guess about; the error still lands on the host card.
+		count, syncErr := SyncSource(s.store, h)
+		if fresh, err := s.store.HostByID(h.ID); err == nil {
+			h = fresh
+		}
+		writeJSON(w, 200, map[string]any{"host": h, "nodes": count, "error": errText(syncErr)})
+		return
+	}
 	h, err := s.store.CreateHost(name, body.Kind)
 	if err != nil {
 		writeErr(w, 409, "机器名已存在："+name)
@@ -616,15 +647,57 @@ func (s *Server) handleCreateHost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, h)
 }
 
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// handleRefreshHost re-pulls a subscription source on demand.
+func (s *Server) handleRefreshHost(w http.ResponseWriter, r *http.Request) {
+	h, err := s.store.HostByID(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, "机器不存在")
+		return
+	}
+	if h.Kind != HostSource {
+		writeErr(w, 400, "只有订阅源可以刷新")
+		return
+	}
+	count, syncErr := SyncSource(s.store, h)
+	if fresh, err := s.store.HostByID(h.ID); err == nil {
+		h = fresh
+	}
+	status := 200
+	if syncErr != nil {
+		status = 502
+	}
+	writeJSON(w, status, map[string]any{"host": h, "nodes": count, "error": errText(syncErr)})
+}
+
 func (s *Server) handlePatchHost(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Name   *string `json:"name"`
-		Rotate bool    `json:"rotate"`
+		Name    *string `json:"name"`
+		URL     *string `json:"url"`
+		Refresh bool    `json:"refresh"`
+		Rotate  bool    `json:"rotate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "请求无效")
 		return
+	}
+	if body.URL != nil {
+		rawURL := strings.TrimSpace(*body.URL)
+		if rawURL == "" {
+			writeErr(w, 400, "订阅地址不能为空")
+			return
+		}
+		if err := s.store.SetSourceURL(id, rawURL); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	if body.Name != nil {
 		name := strings.TrimSpace(*body.Name)
@@ -638,6 +711,21 @@ func (s *Server) handlePatchHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := map[string]any{"ok": true}
+	if body.Refresh {
+		h, err := s.store.HostByID(id)
+		if err != nil {
+			writeErr(w, 404, "机器不存在")
+			return
+		}
+		if h.Kind == HostSource {
+			count, syncErr := SyncSource(s.store, h)
+			out["nodes"] = count
+			out["error"] = errText(syncErr)
+			if fresh, err := s.store.HostByID(id); err == nil {
+				out["host"] = fresh
+			}
+		}
+	}
 	if body.Rotate {
 		t, err := s.store.RotateHostToken(id)
 		if err != nil {
@@ -872,7 +960,7 @@ func (s *Server) handleUpdateBundle(w http.ResponseWriter, r *http.Request) {
 
 func normalizeBundle(b *Bundle) {
 	switch b.GroupBy {
-	case "host", "type", "flat":
+	case "host", "type", "flat", "region":
 	default:
 		b.GroupBy = "host"
 	}

@@ -10,6 +10,7 @@ type Props = PageProps & { id?: string }
 const groupOptions = [
   { value: 'host', label: '按机器' },
   { value: 'type', label: '按协议' },
+  { value: 'region', label: '按地区' },
   { value: 'flat', label: '不分组' },
 ] as const
 

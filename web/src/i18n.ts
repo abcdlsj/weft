@@ -262,6 +262,8 @@ const en: Record<string, string> = {
   '创建': 'Created',
   '按机器': 'By host',
   '按协议': 'By type',
+  '按地区': 'By region',
+  '按地区分组': 'By region',
   '分组方式怎么选': 'Choosing a grouping',
   '一条编排可以被多条订阅引用': 'One bundle can feed several subscriptions',
   '每台一个组，切换最直观；单机下线只影响一个组。': 'One group per host, the clearest switch; a dead host affects one group.',
@@ -453,6 +455,21 @@ const en: Record<string, string> = {
   '未知格式': 'Unknown format',
   '未知客户端': 'Unknown client',
   '未标注设备': 'Unlabelled device',
+
+  // subscription sources
+  '订阅地址（机场）': 'Subscription URL (airport)',
+  'weft 自己拉订阅，清掉广告节点，按地区拆组': 'weft pulls the subscription itself, drops ad nodes, groups by region',
+  '订阅地址不能为空': 'Subscription URL cannot be empty',
+  '订阅拉取失败：{{error}}': 'Subscription pull failed: {{error}}',
+  '已拉取 {{n}} 个节点': 'Pulled {{n}} nodes',
+  '支持 Clash 配置、base64 链接列表和明文链接；每 6 小时自动重拉一次。': 'Accepts Clash configs, base64 link lists and plain links; re-pulled every 6 hours.',
+  '订阅 · {{ago}}': 'Subscription · {{ago}}',
+  '订阅 · 未拉取': 'Subscription · never pulled',
+  '最后拉取': 'Last pull',
+  '上次拉取失败：{{error}}': 'Last pull failed: {{error}}',
+  '现在重新拉取': 'Pull now',
+  '删除订阅源': 'Delete source',
+  '跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 weft 自己拉。': 'Hosts running mihomo report on their own; a hy2 / v2ray only box is derived from its config; airport subscriptions are pulled by weft.',
 }
 
 const stored = localStorage.getItem('weft-locale')

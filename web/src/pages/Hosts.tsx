@@ -30,6 +30,10 @@ const KIND_COPY: Record<HostKind, { label: string; blurb: string }> = {
     label: '只跑 hy2 / v2ray 的机器',
     blurb: 'agent 读机器上的 hysteria / xray 配置，反推出客户端节点',
   },
+  sub: {
+    label: '订阅地址（机场）',
+    blurb: 'weft 自己拉订阅，清掉广告节点，按地区拆组',
+  },
 }
 
 export function Hosts({ state, refresh }: PageProps) {
@@ -37,6 +41,7 @@ export function Hosts({ state, refresh }: PageProps) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<HostKind>('agent')
+  const [url, setURL] = useState('')
   const [created, setCreated] = useState<Host | null>(null)
   const [selectedID, setSelectedID] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -59,12 +64,44 @@ export function Hosts({ state, refresh }: PageProps) {
   async function create() {
     const value = name.trim()
     if (!value) return
+    if (kind === 'sub' && !url.trim()) {
+      notify(t('订阅地址不能为空'))
+      return
+    }
     setBusy(true)
     try {
-      const host = await api.createHost(value, kind)
-      setCreated(host)
+      const res = await api.createHost(value, kind, kind === 'sub' ? url.trim() : undefined)
+      const host = 'host' in res && res.host ? res.host : (res as Host)
+      if (kind === 'sub') {
+        const pulled = 'nodes' in res ? res.nodes ?? 0 : 0
+        const failure = 'error' in res ? res.error : ''
+        notify(
+          failure
+            ? t('订阅拉取失败：{{error}}', { error: failure })
+            : t('已拉取 {{n}} 个节点', { n: pulled }),
+        )
+      }
+      setCreated(kind === 'sub' ? null : host)
       setName('')
+      setURL('')
       setAdding(false)
+      await refresh()
+    } catch (e) {
+      notify((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refreshSource(host: Host) {
+    setBusy(true)
+    try {
+      const res = await api.refreshHost(host.id)
+      notify(
+        res.error
+          ? t('订阅拉取失败：{{error}}', { error: res.error })
+          : t('已拉取 {{n}} 个节点', { n: res.nodes }),
+      )
       await refresh()
     } catch (e) {
       notify((e as Error).message)
@@ -102,7 +139,9 @@ export function Hosts({ state, refresh }: PageProps) {
       <div className="title-row">
         <div>
           <h1>{t('机器')}</h1>
-          <p className="sub">{t('跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推。')}</p>
+          <p className="sub">
+            {t('跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 weft 自己拉。')}
+          </p>
         </div>
         <div className="title-actions">
           <button className="btn btn--primary" onClick={() => setAdding(true)}>
@@ -167,7 +206,11 @@ export function Hosts({ state, refresh }: PageProps) {
                     <td data-label={t('机器')}>
                       <span className="cell-main">{h.name}</span>
                       <span className="cell-sub mono">
-                        {h.kind === 'static' ? 'hy2 / v2ray' : h.controller || '—'}
+                        {h.kind === 'static'
+                          ? 'hy2 / v2ray'
+                          : h.kind === 'sub'
+                            ? h.subUrl || '—'
+                            : h.controller || '—'}
                       </span>
                     </td>
                     <td data-label={t('状态')}>
@@ -186,13 +229,17 @@ export function Hosts({ state, refresh }: PageProps) {
                       {avg ? `${avg} ms` : '—'}
                     </td>
                     <td data-label={t('数据来源')} className="muted">
-                      {h.kind === 'static'
-                        ? h.lastSeen
-                          ? t('配置 · {{ago}}', { ago: ago(h.lastSeen) })
-                          : t('配置 · 未上报')
-                        : h.lastSeen
-                          ? t('mihomo · {{ago}}', { ago: ago(h.lastSeen) })
-                          : t('mihomo · 未上报')}
+                      {h.kind === 'sub'
+                        ? h.subCheckedAt
+                          ? t('订阅 · {{ago}}', { ago: ago(h.subCheckedAt) })
+                          : t('订阅 · 未拉取')
+                        : h.kind === 'static'
+                          ? h.lastSeen
+                            ? t('配置 · {{ago}}', { ago: ago(h.lastSeen) })
+                            : t('配置 · 未上报')
+                          : h.lastSeen
+                            ? t('mihomo · {{ago}}', { ago: ago(h.lastSeen) })
+                            : t('mihomo · 未上报')}
                     </td>
                     <td className="cell-action">
                       <Icon name="chevron" />
@@ -256,7 +303,11 @@ weft agent --server ${state.publicBase} \\
               <button className="btn btn--quiet" onClick={() => setAdding(false)}>
                 {t('取消')}
               </button>
-              <button className="btn btn--primary" onClick={() => void create()} disabled={busy || !name.trim()}>
+              <button
+                className="btn btn--primary"
+                onClick={() => void create()}
+                disabled={busy || !name.trim() || (kind === 'sub' && !url.trim())}
+              >
                 {t('生成 token')}
               </button>
             </>
@@ -281,12 +332,26 @@ weft agent --server ${state.publicBase} \\
             <input
               autoFocus
               value={name}
-              placeholder="h2nexus"
+              placeholder={kind === 'sub' ? '宝可梦' : 'h2nexus'}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void create()}
             />
             <span className="field__hint">{t('用作订阅里的节点前缀，不要含空格或斜杠。')}</span>
           </label>
+          {kind === 'sub' && (
+            <label className="field">
+              <span>{t('订阅地址')}</span>
+              <input
+                value={url}
+                placeholder="https://example.com/api/v1/client/subscribe?token=…"
+                onChange={(e) => setURL(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void create()}
+              />
+              <span className="field__hint">
+                {t('支持 Clash 配置、base64 链接列表和明文链接；每 6 小时自动重拉一次。')}
+              </span>
+            </label>
+          )}
         </Modal>
       )}
 
@@ -362,32 +427,72 @@ weft agent --server ${state.publicBase} \\
                 </div>
               </>
             )}
+            {selected.kind === 'sub' && (
+              <>
+                <div>
+                  <dt>{t('订阅地址')}</dt>
+                  <dd className="mono cell-sub">{selected.subUrl || '—'}</dd>
+                </div>
+                <div>
+                  <dt>{t('最后拉取')}</dt>
+                  <dd>{selected.subCheckedAt ? ago(selected.subCheckedAt) : t('从未')}</dd>
+                </div>
+              </>
+            )}
           </dl>
 
-          <h3 className="section-title">{t('接入命令')}</h3>
-          {freshToken ? (
-            <pre className="code">{agentCommand(state.publicBase, freshToken, selected.kind)}</pre>
+          {selected.kind === 'sub' ? (
+            <>
+              {selected.subError && (
+                <p className="prose">
+                  {t('上次拉取失败：{{error}}', { error: selected.subError })}
+                </p>
+              )}
+              <div className="row-actions">
+                <button
+                  className="btn btn--secondary btn--sm"
+                  disabled={busy}
+                  onClick={() => void refreshSource(selected)}
+                >
+                  <Icon name="refresh" />
+                  {t('现在重新拉取')}
+                </button>
+                <button className="btn btn--danger btn--sm" onClick={() => void remove(selected)}>
+                  <Icon name="trash" />
+                  {t('删除订阅源')}
+                </button>
+              </div>
+            </>
           ) : (
             <>
-              <p className="prose muted">{t('token 只在生成时显示。下面这条命令里的 token 要换成轮换后拿到的那一个。')}</p>
-              <pre className="code">
-                {agentCommand(state.publicBase, '<host token>', selected.kind)}
-              </pre>
+              <h3 className="section-title">{t('接入命令')}</h3>
+              {freshToken ? (
+                <pre className="code">{agentCommand(state.publicBase, freshToken, selected.kind)}</pre>
+              ) : (
+                <>
+                  <p className="prose muted">
+                    {t('token 只在生成时显示。下面这条命令里的 token 要换成轮换后拿到的那一个。')}
+                  </p>
+                  <pre className="code">
+                    {agentCommand(state.publicBase, '<host token>', selected.kind)}
+                  </pre>
+                </>
+              )}
+              <div className="row-actions">
+                {freshToken && (
+                  <Copy value={agentCommand(state.publicBase, freshToken, selected.kind)} label={t('复制命令')} />
+                )}
+                <button className="btn btn--quiet btn--sm" onClick={() => void rotate(selected)}>
+                  <Icon name="key" />
+                  {t('轮换 token')}
+                </button>
+                <button className="btn btn--danger btn--sm" onClick={() => void remove(selected)}>
+                  <Icon name="trash" />
+                  {t('删除机器')}
+                </button>
+              </div>
             </>
           )}
-          <div className="row-actions">
-            {freshToken && (
-              <Copy value={agentCommand(state.publicBase, freshToken, selected.kind)} label={t('复制命令')} />
-            )}
-            <button className="btn btn--quiet btn--sm" onClick={() => void rotate(selected)}>
-              <Icon name="key" />
-              {t('轮换 token')}
-            </button>
-            <button className="btn btn--danger btn--sm" onClick={() => void remove(selected)}>
-              <Icon name="trash" />
-              {t('删除机器')}
-            </button>
-          </div>
 
           <div className="section-head">
             <h3 className="section-title">{t('节点（{{n}}）', { n: selectedNodes.length })}</h3>

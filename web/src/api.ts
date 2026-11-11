@@ -1,7 +1,7 @@
 import i18n from './i18n'
 
 export type HostStatus = 'online' | 'stale' | 'offline' | 'never' | 'manual'
-export type HostKind = 'agent' | 'static'
+export type HostKind = 'agent' | 'static' | 'sub'
 
 export interface Host {
   id: string
@@ -9,6 +9,9 @@ export interface Host {
   token?: string
   kind: HostKind
   controller: string
+  subUrl?: string
+  subError?: string
+  subCheckedAt?: number
   agentVersion: string
   mihomoVersion: string
   lastSeen: number
@@ -28,7 +31,8 @@ export interface ProxyNode {
   port: number
   alive: boolean
   delayMs: number
-  source: 'agent' | 'config' | 'manual'
+  region?: string
+  source: 'agent' | 'config' | 'manual' | 'sub'
   raw?: Record<string, unknown>
   updatedAt: number
 }
@@ -42,7 +46,7 @@ export interface Bundle {
   id: string
   name: string
   slug: string
-  groupBy: 'host' | 'type' | 'flat'
+  groupBy: 'host' | 'type' | 'flat' | 'region'
   groupType: 'url-test' | 'select' | 'fallback' | 'load-balance'
   template: string
   ruleSetId: string
@@ -199,8 +203,13 @@ export const api = {
     }),
   logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   state: () => req<FleetState>('/api/state'),
-  createHost: (name: string, kind: HostKind = 'agent') =>
-    req<Host>('/api/hosts', { method: 'POST', body: JSON.stringify({ name, kind }) }),
+  createHost: (name: string, kind: HostKind = 'agent', url?: string) =>
+    req<{ host?: Host; nodes?: number; error?: string } | Host>('/api/hosts', {
+      method: 'POST',
+      body: JSON.stringify({ name, kind, url }),
+    }),
+  refreshHost: (id: string) =>
+    req<{ host: Host; nodes: number; error: string }>(`/api/hosts/${id}/refresh`, { method: 'POST' }),
   createNode: (hostId: string, body: { links?: string[]; proxy?: Record<string, unknown> }) =>
     req<{ saved: ProxyNode[]; failed: string[] }>(`/api/hosts/${hostId}/nodes`, {
       method: 'POST',

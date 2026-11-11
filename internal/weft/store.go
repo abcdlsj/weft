@@ -137,6 +137,10 @@ CREATE TABLE IF NOT EXISTS settings (
 	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN access_key TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN bearer TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE bundles ADD COLUMN rule_set_id TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE hosts ADD COLUMN sub_url TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE hosts ADD COLUMN sub_error TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE hosts ADD COLUMN sub_checked_at INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE nodes ADD COLUMN region TEXT NOT NULL DEFAULT ''`)
 	// every link gets a key, including ones created before keys existed
 	s.db.Exec(`UPDATE subscriptions SET access_key = lower(hex(randomblob(8))) WHERE access_key = ''`)
 	s.db.Exec(`UPDATE subscriptions SET bearer = lower(hex(randomblob(24))) WHERE bearer = ''`)
@@ -161,13 +165,17 @@ func now() int64 { return time.Now().Unix() }
 
 // Host is one machine in the fleet. kind separates hosts that report through
 // an agent (`agent`) from hosts whose nodes are entered by hand (`static`),
-// which is what a bare hysteria2 / xray box needs.
+// which is what a bare hysteria2 / xray box needs, from subscription sources
+// (`sub`) that weft pulls and flattens on its own schedule.
 type Host struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Token         string `json:"token,omitempty"`
 	Kind          string `json:"kind"`
 	Controller    string `json:"controller"`
+	SubURL        string `json:"subUrl"`
+	SubError      string `json:"subError"`
+	SubCheckedAt  int64  `json:"subCheckedAt"`
 	AgentVersion  string `json:"agentVersion"`
 	MihomoVersion string `json:"mihomoVersion"`
 	LastSeen      int64  `json:"lastSeen"`
@@ -179,11 +187,15 @@ type Host struct {
 const (
 	HostAgent  = "agent"
 	HostStatic = "static"
+	HostSource = "sub"
 )
 
 func NormalizeHostKind(kind string) string {
-	if kind == HostStatic {
+	switch kind {
+	case HostStatic:
 		return HostStatic
+	case HostSource:
+		return HostSource
 	}
 	return HostAgent
 }
@@ -199,9 +211,36 @@ func (s *Store) CreateHost(name, kind string) (*Host, error) {
 	return h, nil
 }
 
+// CreateSourceHost adds a subscription source: a host whose nodes weft pulls
+// itself instead of being told about them by an agent.
+func (s *Store) CreateSourceHost(name, rawURL string) (*Host, error) {
+	h, err := s.CreateHost(name, HostSource)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.SetSourceURL(h.ID, rawURL); err != nil {
+		return nil, err
+	}
+	h.SubURL = rawURL
+	return h, nil
+}
+
+func (s *Store) SetSourceURL(id, rawURL string) error {
+	_, err := s.db.Exec(`UPDATE hosts SET sub_url=?, sub_error='', sub_checked_at=0 WHERE id=?`, rawURL, id)
+	return err
+}
+
+// SetSourceState records the outcome of the last pull so the panel can show a
+// broken subscription instead of an empty host.
+func (s *Store) SetSourceState(id, errMsg string, checkedAt int64) error {
+	_, err := s.db.Exec(`UPDATE hosts SET sub_error=?, sub_checked_at=? WHERE id=?`, errMsg, checkedAt, id)
+	return err
+}
+
 func (s *Store) ListHosts() ([]Host, error) {
 	rows, err := s.db.Query(`
-SELECT h.id, h.name, h.kind, h.controller, h.agent_version, h.mihomo_version, h.last_seen, h.created_at,
+SELECT h.id, h.name, h.kind, h.controller, h.sub_url, h.sub_error, h.sub_checked_at,
+       h.agent_version, h.mihomo_version, h.last_seen, h.created_at,
        COALESCE(n.total,0), COALESCE(n.alive,0)
 FROM hosts h
 LEFT JOIN (SELECT host_id, COUNT(*) total, SUM(alive) alive FROM nodes GROUP BY host_id) n ON n.host_id = h.id
@@ -213,8 +252,8 @@ ORDER BY h.created_at`)
 	var out []Host
 	for rows.Next() {
 		var h Host
-		if err := rows.Scan(&h.ID, &h.Name, &h.Kind, &h.Controller, &h.AgentVersion, &h.MihomoVersion,
-			&h.LastSeen, &h.CreatedAt, &h.NodeCount, &h.AliveCount); err != nil {
+		if err := rows.Scan(&h.ID, &h.Name, &h.Kind, &h.Controller, &h.SubURL, &h.SubError, &h.SubCheckedAt,
+			&h.AgentVersion, &h.MihomoVersion, &h.LastSeen, &h.CreatedAt, &h.NodeCount, &h.AliveCount); err != nil {
 			return nil, err
 		}
 		out = append(out, h)
@@ -224,9 +263,10 @@ ORDER BY h.created_at`)
 
 func (s *Store) HostByID(id string) (*Host, error) {
 	var h Host
-	err := s.db.QueryRow(`SELECT id,name,token,kind,controller,agent_version,mihomo_version,last_seen,created_at
-FROM hosts WHERE id=?`, id).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controller, &h.AgentVersion,
-		&h.MihomoVersion, &h.LastSeen, &h.CreatedAt)
+	err := s.db.QueryRow(`SELECT id,name,token,kind,controller,sub_url,sub_error,sub_checked_at,
+agent_version,mihomo_version,last_seen,created_at
+FROM hosts WHERE id=?`, id).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controller,
+		&h.SubURL, &h.SubError, &h.SubCheckedAt, &h.AgentVersion, &h.MihomoVersion, &h.LastSeen, &h.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -235,9 +275,10 @@ FROM hosts WHERE id=?`, id).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controlle
 
 func (s *Store) HostByToken(token string) (*Host, error) {
 	var h Host
-	err := s.db.QueryRow(`SELECT id,name,token,kind,controller,agent_version,mihomo_version,last_seen,created_at
-FROM hosts WHERE token=?`, token).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controller, &h.AgentVersion,
-		&h.MihomoVersion, &h.LastSeen, &h.CreatedAt)
+	err := s.db.QueryRow(`SELECT id,name,token,kind,controller,sub_url,sub_error,sub_checked_at,
+agent_version,mihomo_version,last_seen,created_at
+FROM hosts WHERE token=?`, token).Scan(&h.ID, &h.Name, &h.Token, &h.Kind, &h.Controller,
+		&h.SubURL, &h.SubError, &h.SubCheckedAt, &h.AgentVersion, &h.MihomoVersion, &h.LastSeen, &h.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -281,7 +322,8 @@ type Node struct {
 	Port      int             `json:"port"`
 	Alive     bool            `json:"alive"`
 	DelayMS   int             `json:"delayMs"`
-	Source    string          `json:"source"` // agent | manual
+	Region    string          `json:"region"` // 香港 / 新加坡 / … from the source
+	Source    string          `json:"source"` // agent | config | manual | sub
 	Raw       json.RawMessage `json:"raw,omitempty"`
 	UpdatedAt int64           `json:"updatedAt"`
 }
@@ -290,6 +332,7 @@ const (
 	NodeAgent  = "agent"
 	NodeConfig = "config" // read from a hysteria / xray config on the host
 	NodeManual = "manual"
+	NodeSub    = "sub" // pulled from a subscription source
 )
 
 func (s *Store) ReplaceNodes(hostID string, nodes []Node) error {
@@ -338,8 +381,46 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?)`, hostID, n.Key, n.Name, n.Type, n.Server, n.Port
 	return tx.Commit()
 }
 
+// ReplaceSourceNodes swaps the whole inventory of a subscription source. Hand
+// entered nodes survive, and so does the report history, so the overview still
+// shows the source's node count over time.
+func (s *Store) ReplaceSourceNodes(hostID string, nodes []Node) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM nodes WHERE host_id=? AND source<>?`, hostID, NodeManual); err != nil {
+		return err
+	}
+	ts := now()
+	for _, n := range nodes {
+		raw := n.Raw
+		if len(raw) == 0 {
+			raw = json.RawMessage(`{}`)
+		}
+		if _, err := tx.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,region,source,raw,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(host_id,key) DO UPDATE SET
+  name=excluded.name, type=excluded.type, server=excluded.server, port=excluded.port,
+  region=excluded.region, source=excluded.source, raw=excluded.raw, updated_at=excluded.updated_at`,
+			hostID, n.Key, n.Name, n.Type, n.Server, n.Port, boolInt(n.Alive), n.DelayMS,
+			n.Region, NodeSub, string(raw), ts); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count,avg_delay) VALUES (?,?,?,?,?)`,
+		hostID, ts, len(nodes), 0, 0); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM reports WHERE host_id=? AND at < ?`, hostID, ts-86400); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ListNodes(hostID string) ([]Node, error) {
-	q := `SELECT n.host_id, h.name, n.key, n.name, n.type, n.server, n.port, n.alive, n.delay_ms, n.source, n.raw, n.updated_at
+	q := `SELECT n.host_id, h.name, n.key, n.name, n.type, n.server, n.port, n.alive, n.delay_ms, n.region, n.source, n.raw, n.updated_at
 FROM nodes n JOIN hosts h ON h.id = n.host_id`
 	args := []any{}
 	if hostID != "" {
@@ -358,7 +439,7 @@ FROM nodes n JOIN hosts h ON h.id = n.host_id`
 		var alive int
 		var raw string
 		if err := rows.Scan(&n.HostID, &n.HostName, &n.Key, &n.Name, &n.Type, &n.Server,
-			&n.Port, &alive, &n.DelayMS, &n.Source, &raw, &n.UpdatedAt); err != nil {
+			&n.Port, &alive, &n.DelayMS, &n.Region, &n.Source, &raw, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		n.Alive = alive == 1
@@ -372,9 +453,9 @@ func (s *Store) NodeByKey(hostID, key string) (*Node, error) {
 	var n Node
 	var alive int
 	var raw string
-	err := s.db.QueryRow(`SELECT host_id, key, name, type, server, port, alive, delay_ms, source, raw, updated_at
+	err := s.db.QueryRow(`SELECT host_id, key, name, type, server, port, alive, delay_ms, region, source, raw, updated_at
 FROM nodes WHERE host_id=? AND key=?`, hostID, key).Scan(&n.HostID, &n.Key, &n.Name, &n.Type,
-		&n.Server, &n.Port, &alive, &n.DelayMS, &n.Source, &raw, &n.UpdatedAt)
+		&n.Server, &n.Port, &alive, &n.DelayMS, &n.Region, &n.Source, &raw, &n.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -394,13 +475,13 @@ func (s *Store) UpsertNode(hostID string, n Node) error {
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
-	_, err := s.db.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,source,raw,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,region,source,raw,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(host_id,key) DO UPDATE SET
   name=excluded.name, type=excluded.type, server=excluded.server, port=excluded.port,
   source=excluded.source, raw=excluded.raw, updated_at=excluded.updated_at`,
 		hostID, n.Key, n.Name, n.Type, n.Server, n.Port, boolInt(n.Alive), n.DelayMS,
-		NodeManual, string(raw), now())
+		n.Region, NodeManual, string(raw), now())
 	return err
 }
 
