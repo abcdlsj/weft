@@ -226,7 +226,7 @@ export function Hosts({ state, refresh }: PageProps) {
               </li>
               <li>
                 <span>{t('上报周期')}</span>
-                <span>{t('15 秒，失败退避至 60 秒')}</span>
+                <span>{t('5 分钟，失败每 60 秒重试')}</span>
               </li>
             </ul>
           </div>

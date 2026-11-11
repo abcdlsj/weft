@@ -37,7 +37,7 @@ type agentReport struct {
 // off on failure. It never opens an inbound port.
 func RunAgent(ctx context.Context, cfg AgentConfig) error {
 	if cfg.Interval <= 0 {
-		cfg.Interval = 15 * time.Second
+		cfg.Interval = 5 * time.Minute
 	}
 	client := NewMihomoClient(cfg.Controller, cfg.Secret)
 	httpc := &http.Client{Timeout: 15 * time.Second}
@@ -48,7 +48,7 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 		nodes, version, err := collectEverything(cfg, client)
 		if err != nil {
 			log.Printf("agent: %v", err)
-			backoff = nextBackoff(backoff, cfg.Interval)
+			backoff = nextBackoff(backoff)
 		} else {
 			report := agentReport{
 				AgentVersion:  AgentVersion,
@@ -58,7 +58,7 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 			}
 			if err := postReport(httpc, cfg.Server, cfg.Token, report); err != nil {
 				log.Printf("agent: reporting to %s: %v", cfg.Server, err)
-				backoff = nextBackoff(backoff, cfg.Interval)
+				backoff = nextBackoff(backoff)
 			} else {
 				backoff = cfg.Interval
 				if cfg.Verbose {
@@ -122,13 +122,15 @@ func collectEverything(cfg AgentConfig, client *MihomoClient) ([]Node, string, e
 	return nodes, version, nil
 }
 
-func nextBackoff(cur, base time.Duration) time.Duration {
+// A failed report retries soon instead of waiting out a full interval: the
+// cadence is a budget for the happy path, not a delay after a blip.
+func nextBackoff(cur time.Duration) time.Duration {
 	next := cur * 2
 	if next > 60*time.Second {
 		next = 60 * time.Second
 	}
-	if next < base {
-		next = base
+	if next < 15*time.Second {
+		next = 15 * time.Second
 	}
 	return next
 }

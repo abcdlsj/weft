@@ -425,6 +425,8 @@ type hostView struct {
 	Status string `json:"status"`
 }
 
+// The agent reports every five minutes; one missed window still counts as
+// online, and a host is only written off after six of them.
 func hostStatus(h Host) string {
 	if h.Kind == HostStatic {
 		return "manual"
@@ -432,9 +434,9 @@ func hostStatus(h Host) string {
 	switch {
 	case h.LastSeen == 0:
 		return "never"
-	case now()-h.LastSeen < 45:
+	case now()-h.LastSeen < 660:
 		return "online"
-	case now()-h.LastSeen < 600:
+	case now()-h.LastSeen < 1800:
 		return "stale"
 	default:
 		return "offline"

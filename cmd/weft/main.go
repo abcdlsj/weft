@@ -116,7 +116,7 @@ func runAgent(args []string) {
 	hysteriaConfig := fs.String("hysteria-config", "", "hysteria2 server config to read nodes from")
 	xrayConfig := fs.String("xray-config", "", "xray server config to read nodes from")
 	publicHost := fs.String("public-host", "", "public address of this host for nodes read from service configs")
-	interval := fs.Duration("interval", 15*time.Second, "report interval")
+	interval := fs.Duration("interval", 5*time.Minute, "report interval")
 	verbose := fs.Bool("verbose", false, "log each report")
 	fs.Parse(args)
 

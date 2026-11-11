@@ -36,7 +36,7 @@
 
 | 实体 | 字段要点 | 说明 |
 |---|---|---|
-| `Host` | id, name, token, **kind**(agent/static), last_seen, agent_version, controller_url, status | 一台机器。`kind=agent` 跑 mihomo，`kind=static` 只跑服务端（hy2/xray）。`status` 由 `last_seen` 推导：online < 45s, stale < 10m, offline；static 恒为 `manual` |
+| `Host` | id, name, token, **kind**(agent/static), last_seen, agent_version, controller_url, status | 一台机器。`kind=agent` 跑 mihomo，`kind=static` 只跑服务端（hy2/xray）。`status` 由 `last_seen` 推导：online < 11m, stale < 30m, offline（上报周期 5 分钟，容忍一次丢失）；static 恒为 `manual` |
 | `Node` | host_id, name(原名), key(去重键: type+server+port+uuid/password hash), type, **source**(agent/config/manual), delay_ms, alive, raw, updated_at | `raw` 是完整的 mihomo proxy map，订阅直接用它，不再做协议解析 |
 | `Bundle` | id, name, slug, rule_template_id, member_keys, group_by | 跨 host 的节点选集 + 分组策略 |
 | `Subscription` | id, bundle_id, token, target_format, enabled, last_used_at, ua | 一条对外 URL |
@@ -90,7 +90,7 @@ weft agent --server ... --token ... \
 }
 ```
 
-- 默认 15s 上报一次；上报失败指数退避至 60s。
+- 默认 5 分钟上报一次；上报失败按 15s→30s→60s 重试，成功后回到 5 分钟。
 - agent 侧调用 mihomo `GET /proxies`、`GET /providers/proxies`，合并出站（排除 `DIRECT`/`REJECT`/内置组），对 `proxy-providers` 里的节点也一并展开。
 - 首次注册：`weft host add` 在 server 侧签发 token，或面板生成一次性注册码，agent 用注册码换 token 后存本地。
 
