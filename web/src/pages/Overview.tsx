@@ -74,7 +74,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
         <div className="kpi__cell">
           <p className="label">{t('最近上报')}</p>
           <p className="kpi__value kpi__value--sm">{ago(lastReport)}</p>
-          <p className="kpi__meta">{t('agent 每 5 分钟同步一次')}</p>
+          <p className="kpi__meta">{t('agent 变动即报，每小时心跳')}</p>
         </div>
       </section>
 

@@ -3,10 +3,13 @@ package weft
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -23,6 +26,7 @@ type AgentConfig struct {
 	Secret     string
 	Services   ServiceConfigs
 	Interval   time.Duration
+	Heartbeat  time.Duration
 	Verbose    bool
 }
 
@@ -33,15 +37,23 @@ type agentReport struct {
 	Nodes         []Node `json:"nodes"`
 }
 
-// RunAgent pushes a proxy inventory to the server on a fixed cadence and backs
-// off on failure. It never opens an inbound port.
+// RunAgent pushes a proxy inventory to the server when it changes, plus an
+// hourly heartbeat so the panel can tell silence from death. It never opens an
+// inbound port.
 func RunAgent(ctx context.Context, cfg AgentConfig) error {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 5 * time.Minute
 	}
+	if cfg.Heartbeat <= 0 {
+		cfg.Heartbeat = time.Hour
+	}
 	client := NewMihomoClient(cfg.Controller, cfg.Secret)
 	httpc := &http.Client{Timeout: 15 * time.Second}
 	backoff := cfg.Interval
+	var (
+		lastDigest string
+		lastPost   time.Time
+	)
 
 	for {
 		start := time.Now()
@@ -56,10 +68,20 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 				MihomoVersion: version,
 				Nodes:         nodes,
 			}
-			if err := postReport(httpc, cfg.Server, cfg.Token, report); err != nil {
+			digest, hoverr := reportDigest(report)
+			if hoverr != nil {
+				log.Printf("agent: hashing the inventory: %v", hoverr)
+				backoff = nextBackoff(backoff)
+			} else if digest == lastDigest && time.Since(lastPost) < cfg.Heartbeat {
+				backoff = cfg.Interval
+				if cfg.Verbose {
+					log.Printf("agent: %d nodes, unchanged", len(nodes))
+				}
+			} else if err := postReport(httpc, cfg.Server, cfg.Token, report); err != nil {
 				log.Printf("agent: reporting to %s: %v", cfg.Server, err)
 				backoff = nextBackoff(backoff)
 			} else {
+				lastDigest, lastPost = digest, time.Now()
 				backoff = cfg.Interval
 				if cfg.Verbose {
 					alive := 0
@@ -133,6 +155,33 @@ func nextBackoff(cur time.Duration) time.Duration {
 		next = 15 * time.Second
 	}
 	return next
+}
+
+// reportDigest decides whether a report is worth a request. Liveness, latency
+// and the server's own timestamp move on every mihomo poll and carry nothing
+// the server keeps, so they are zeroed before hashing; the nodes are sorted so
+// a map-ordered inventory still hashes the same twice.
+func reportDigest(report agentReport) (string, error) {
+	stable := report
+	stable.Nodes = make([]Node, len(report.Nodes))
+	for i, n := range report.Nodes {
+		n.Alive = false
+		n.DelayMS = 0
+		n.UpdatedAt = 0
+		stable.Nodes[i] = n
+	}
+	sort.SliceStable(stable.Nodes, func(i, j int) bool {
+		if stable.Nodes[i].Key != stable.Nodes[j].Key {
+			return stable.Nodes[i].Key < stable.Nodes[j].Key
+		}
+		return stable.Nodes[i].Port < stable.Nodes[j].Port
+	})
+	encoded, err := json.Marshal(stable)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func postReport(c *http.Client, server, token string, report agentReport) error {

@@ -226,7 +226,7 @@ export function Hosts({ state, refresh }: PageProps) {
               </li>
               <li>
                 <span>{t('上报周期')}</span>
-                <span>{t('5 分钟，失败每 60 秒重试')}</span>
+                <span>{t('5 分钟读一次配置；有变化即报，无变化每小时心跳')}</span>
               </li>
             </ul>
           </div>
