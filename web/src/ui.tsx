@@ -92,12 +92,20 @@ function Dialog({
     const el = ref.current
     if (!el || el.open) return
     // Safari 15.4 added showModal; older engines still get a usable fixed box.
+    const focusFirst = () => {
+      const first = el.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([type="file"]), select, textarea',
+      )
+      ;(first ?? el).focus()
+    }
     if (typeof el.showModal === 'function') {
       el.showModal()
+      focusFirst()
       return
     }
     el.setAttribute('open', '')
     el.classList.add('fallback')
+    focusFirst()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
@@ -109,6 +117,7 @@ function Dialog({
       ref={ref}
       className={wide ? 'wide' : undefined}
       aria-label={title}
+      tabIndex={-1}
       onCancel={(e) => {
         e.preventDefault()
         onClose()

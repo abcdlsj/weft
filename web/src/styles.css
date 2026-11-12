@@ -18,7 +18,7 @@
   --code: #111;
   --button-base: #e7e7e7;
   --button-hover: #d5d5d5;
-  --form-placeholder: #9a9a9a;
+  --form-placeholder: #7a7a7a;
   --form-text: #111;
   --selection: #c7ddf5;
   --ok: #1f7a4d;
@@ -157,6 +157,14 @@ hr {
   color: var(--text-muted);
 }
 
+.top-aside button.text {
+  color: var(--text-muted);
+}
+
+.top-aside button.text:hover {
+  color: var(--text-bright);
+}
+
 /* On a phone the bar becomes two rows: identity and session, then a single
    scrolling line of destinations. */
 @media (max-width: 640px) {
@@ -241,7 +249,11 @@ hr {
   margin: 0;
 }
 
-/* ---- buttons ---- */
+/* ---- controls: one height, one radius, one focus ring ---- */
+
+:root {
+  --control-h: 38px;
+}
 
 button,
 input,
@@ -251,11 +263,41 @@ textarea {
   font-size: 0.9rem;
 }
 
+input:not([type='checkbox']):not([type='radio']),
+select {
+  height: var(--control-h);
+  padding: 0 11px;
+  border-radius: 6px;
+}
+
+select {
+  padding-right: 34px;
+}
+
+textarea {
+  padding: 9px 11px;
+  border-radius: 6px;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--links);
+}
+
 button {
-  padding: 7px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-h);
+  padding: 0 14px;
+  border: 1px solid transparent;
   border-radius: 6px;
   background: var(--button-base);
   color: var(--form-text);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 button:hover {
@@ -263,6 +305,7 @@ button:hover {
 }
 
 button.primary {
+  border-color: transparent;
   background: var(--text-bright);
   color: var(--background-body);
 }
@@ -271,29 +314,36 @@ button.primary:hover {
   background: var(--text-main);
 }
 
+/* ghost: the default secondary action, readable on both grounds */
 button.quiet {
+  border-color: var(--border);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-main);
 }
 
 button.quiet:hover {
+  border-color: var(--text-muted);
   background: var(--background);
-  color: var(--text-bright);
 }
 
 button.danger {
+  border-color: var(--border);
   background: transparent;
   color: var(--bad);
 }
 
 button.danger:hover {
-  background: var(--background);
+  border-color: var(--bad);
+  background: transparent;
 }
 
 button.text {
+  height: auto;
   padding: 0;
+  border: 0;
   background: none;
   color: var(--links);
+  font-weight: 400;
 }
 
 button.text:hover {
@@ -302,12 +352,13 @@ button.text:hover {
 }
 
 button.small {
-  padding: 4px 10px;
+  height: 30px;
+  padding: 0 10px;
   font-size: 0.8rem;
 }
 
 button.icon {
-  padding: 5px 8px;
+  border-color: transparent;
   background: none;
   color: var(--text-muted);
 }
@@ -325,9 +376,29 @@ input[hidden] {
   display: none;
 }
 
+@media (max-width: 640px) {
+  :root {
+    --control-h: 42px;
+  }
+
+  button.small {
+    height: 34px;
+  }
+
+  .dialog-foot button {
+    flex: 1;
+  }
+}
+
 :disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.5;
+}
+
+button.primary:disabled {
+  background: var(--button-base);
+  color: var(--text-muted);
+  opacity: 1;
 }
 
 /* ---- text helpers ---- */
@@ -628,14 +699,16 @@ td .sub,
 
 .field {
   display: block;
-  margin: 0 0 14px;
+  margin: 0 0 16px;
 }
 
 .field > span:first-child {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .field input:not([type='checkbox']):not([type='radio']),
@@ -648,10 +721,10 @@ td .sub,
 .field .hint,
 .field__hint {
   display: block;
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--text-muted);
   font-size: 0.76rem;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .form-grid {
@@ -677,7 +750,7 @@ td .sub,
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin: 0 12px 10px 0;
+  margin: 0 12px 6px 0;
   color: var(--text-muted);
   font-size: 0.85rem;
   line-height: 1.4;
@@ -711,12 +784,15 @@ td .sub,
 }
 
 .tabs button {
+  height: auto;
   padding: 2px 0;
-  border-radius: 0;
+  border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: none;
   color: var(--text-muted);
   font-size: 0.85rem;
+  font-weight: 400;
 }
 
 .tabs button:hover {
@@ -743,6 +819,12 @@ td .sub,
   background: var(--border);
   cursor: pointer;
   vertical-align: middle;
+}
+
+.switch::before {
+  content: '';
+  position: absolute;
+  inset: -9px -7px;
 }
 
 .switch span {
@@ -1304,8 +1386,15 @@ dialog.fallback[open] {
 }
 
 .sub-actions select {
-  padding: 4px 26px 4px 8px;
+  height: 30px;
+  padding: 0 26px 0 8px;
   font-size: 0.78rem;
+}
+
+@media (max-width: 640px) {
+  .sub-actions select {
+    height: 34px;
+  }
 }
 
 .devices {
@@ -1388,11 +1477,13 @@ dialog.fallback[open] {
 
 .choice button {
   display: block;
-  padding: 10px 12px;
+  height: auto;
+  padding: 11px 12px;
   text-align: left;
   background: var(--background);
   color: var(--text-main);
   line-height: 1.35;
+  white-space: normal;
 }
 
 .choice button strong {

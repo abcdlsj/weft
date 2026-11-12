@@ -198,7 +198,7 @@ export default function App() {
             {state.hosts.length ? agoShort(Math.max(...state.hosts.map((h) => h.lastSeen))) : '—'}
           </span>
           <button
-            className="quiet small"
+            className="text small"
             onClick={() => {
               setCSRF('')
               api.logout().catch(() => {}).finally(() => window.location.reload())
