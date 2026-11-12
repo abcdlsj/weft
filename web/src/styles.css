@@ -24,6 +24,9 @@
   --ok: #1f7a4d;
   --bad: #b3261e;
   --warn: #8a5a00;
+  --seg-bg: #f1f1f1;
+  --seg-active: #fff;
+  --seg-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
 
 :root[data-theme='dark'] {
@@ -46,6 +49,9 @@
   --ok: #58c98a;
   --bad: #f08a8a;
   --warn: #e0b050;
+  --seg-bg: #232323;
+  --seg-active: #3b3b3b;
+  --seg-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
   --select-arrow: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' height='62.5' width='116.9' fill='%23cccccc'%3E%3Cpath d='M115.3 1.6c-1.6-1.6-4.2-1.6-5.8 0L58.5 52.7 7.4 1.6C5.8 0 3.2 0 1.6 1.6 0 3.2 0 5.8 1.6 7.4l53.9 53.9c.8.8 1.8 1.2 2.9 1.2s2.1-.4 2.9-1.2l53.9-53.9c1.7-1.6 1.7-4.2.1-5.8z'/%3E%3C/svg%3E");
 }
 
@@ -69,6 +75,12 @@ a {
   color: var(--links);
 }
 
+/* prose sits at the same size as the controls around it; only meta text and
+   data are allowed to step away from this scale */
+p {
+  font-size: 0.9rem;
+}
+
 h1,
 h2,
 h3 {
@@ -79,6 +91,10 @@ code,
 pre,
 .mono {
   font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+code {
+  font-size: 0.94em;
 }
 
 pre {
@@ -625,6 +641,7 @@ section > p:last-child {
 table {
   table-layout: auto;
   margin: 0;
+  font-size: 0.9rem;
 }
 
 tbody tr:nth-child(even) {
@@ -798,33 +815,58 @@ td .sub,
   font-size: 0.85rem;
 }
 
+/* a segmented control: the track says "these are choices", the raised
+   segment says which one is on */
 .tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin: 0 0 12px;
+  display: inline-flex;
+  gap: 2px;
+  max-width: 100%;
+  margin: 0 0 14px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--seg-bg);
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tabs button {
-  height: auto;
-  padding: 2px 0;
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 400;
+  font-size: 0.82rem;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .tabs button:hover {
-  background: none;
+  background: transparent;
   color: var(--text-bright);
 }
 
 .tabs button[aria-pressed='true'] {
+  background: var(--seg-active);
   color: var(--text-bright);
-  border-color: var(--text-bright);
+  box-shadow: var(--seg-shadow);
+}
+
+.section-head .tabs {
+  align-self: center;
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .tabs button {
+    height: 34px;
+  }
 }
 
 /* ---- switch ---- */
@@ -1060,7 +1102,7 @@ body.auth {
 .login-card .login-lede {
   margin: 0 0 22px;
   color: var(--text-muted);
-  font-size: 0.88rem;
+  font-size: 0.9rem;
 }
 
 .login-card input {
@@ -1538,7 +1580,7 @@ body.auth {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .facts li {
@@ -1568,6 +1610,7 @@ body.auth {
 .warnings p {
   margin: 0 0 6px;
   color: var(--warn);
+  font-size: 0.85rem;
 }
 
 /* ---- choice (add host) ---- */
