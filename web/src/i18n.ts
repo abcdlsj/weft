@@ -114,10 +114,19 @@ const en: Record<string, string> = {
   '两次输入不一致': 'Passwords do not match',
   '先给面板设一个口令。': 'Set a password for the panel first.',
   '把多台 mihomo 织成一条订阅。': 'Weave many mihomo hosts into one subscription.',
+  '口令保存在这台服务器上，之后用它进入面板。': 'The password lives on this server and is what you use to get in.',
+  '机器只上报，节点直连；Weft 只负责把它们织在一起。': 'Hosts report, nodes connect directly; Weft only weaves them together.',
+  '口令至少 6 位，保存在这台服务器上。': 'At least 6 characters, stored on this server.',
+  '输入口令后继续，登录状态保存在这台设备上。': 'Sign in to continue; the session stays on this device.',
+  '机器只读出站上报，不开放入站端口': 'Hosts report outbound; no inbound ports are opened',
+  '订阅直连节点，流量不经过 Weft': 'Clients dial nodes directly; traffic never flows through Weft',
+  '一条链接，随时吊销': 'One link per bundle, revocable at any time',
   '设置口令': 'Set password',
   '面板口令': 'Panel password',
   '再次输入': 'Repeat password',
   '完成初始化': 'Finish setup',
+  '初始化': 'Set up',
+  '登录': 'Sign in',
   '进入面板': 'Enter panel',
   '演示实例口令：weft-demo': 'Demo password: weft-demo',
 
@@ -458,7 +467,7 @@ const en: Record<string, string> = {
 
   // subscription sources
   '订阅地址（机场）': 'Subscription URL (airport)',
-  'weft 自己拉订阅，清掉广告节点，按地区拆组': 'weft pulls the subscription itself, drops ad nodes, groups by region',
+  'Weft 自己拉订阅，清掉广告节点，按地区拆组': 'Weft pulls the subscription itself, drops ad nodes, groups by region',
   '订阅地址不能为空': 'Subscription URL cannot be empty',
   '订阅拉取失败：{{error}}': 'Subscription pull failed: {{error}}',
   '已拉取 {{n}} 个节点': 'Pulled {{n}} nodes',
@@ -469,7 +478,7 @@ const en: Record<string, string> = {
   '上次拉取失败：{{error}}': 'Last pull failed: {{error}}',
   '现在重新拉取': 'Pull now',
   '删除订阅源': 'Delete source',
-  '跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 weft 自己拉。': 'Hosts running mihomo report on their own; a hy2 / v2ray only box is derived from its config; airport subscriptions are pulled by weft.',
+  '跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 Weft 自己拉。': 'Hosts running mihomo report on their own; a hy2 / v2ray only box is derived from its config; airport subscriptions are pulled by Weft.',
 }
 
 const stored = localStorage.getItem('weft-locale')

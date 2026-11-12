@@ -164,7 +164,7 @@ export default function App() {
       <header className="top">
         <a className="brand" href="/" onClick={(e) => (e.preventDefault(), navigate('/'))}>
           <Mark />
-          <span>weft</span>
+          <span>Weft</span>
         </a>
 
         <nav className="main-nav">

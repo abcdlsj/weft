@@ -31,7 +31,7 @@ const KIND_COPY: Record<HostKind, { label: string; blurb: string }> = {
   },
   sub: {
     label: '订阅地址（机场）',
-    blurb: 'weft 自己拉订阅，清掉广告节点，按地区拆组',
+    blurb: 'Weft 自己拉订阅，清掉广告节点，按地区拆组',
   },
 }
 
@@ -139,7 +139,7 @@ export function Hosts({ state, refresh }: PageProps) {
         <div>
           <h1>{t('机器')}</h1>
           <p className="sub">
-            {t('跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 weft 自己拉。')}
+            {t('跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 Weft 自己拉。')}
           </p>
         </div>
         <div className="actions">

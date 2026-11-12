@@ -1,6 +1,6 @@
 {
-  "name": "weft — 多机订阅聚合面板",
-  "short_name": "weft",
+  "name": "Weft — 多机订阅聚合面板",
+  "short_name": "Weft",
   "description": "把多台 mihomo 织成一条订阅",
   "start_url": "/",
   "scope": "/",
