@@ -187,7 +187,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
             {t('更新口令')}
           </button>
           <button
-            className="quiet"
+            className="quiet push"
             onClick={() => {
               api.logout().catch(() => {}).finally(() => window.location.reload())
             }}

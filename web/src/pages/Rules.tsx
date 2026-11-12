@@ -381,8 +381,8 @@ export function Rules({ state, refresh, theme }: PageProps) {
                 {refreshing ? t('拉取中…') : t('从来源刷新')}
               </button>
             )}
-            <Copy value={editing.content ?? ''} label={t('复制')} />
-            <button className="danger small" onClick={() => void remove(editing)}>
+            <Copy value={editing.content ?? ''} label={t('复制')} small={false} />
+            <button className="danger" onClick={() => void remove(editing)}>
               {t('删除')}
             </button>
           </div>

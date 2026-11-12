@@ -25,13 +25,21 @@ export function Toaster() {
   )
 }
 
-export function Copy({ value, label = '复制' }: { value: string; label?: string }) {
+export function Copy({
+  value,
+  label = '复制',
+  small = true,
+}: {
+  value: string
+  label?: string
+  small?: boolean
+}) {
   const { t } = useTranslation()
   const [done, setDone] = useState(false)
   return (
     <button
       type="button"
-      className="quiet small"
+      className={small ? 'quiet small' : 'quiet'}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(value)
