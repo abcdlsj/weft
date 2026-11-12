@@ -291,7 +291,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
           </div>
         </section>
 
-        <section>
+        <section className="editor-preview">
           <div className="section-head">
             <h2>{t('预览')}</h2>
             <div className="tabs">

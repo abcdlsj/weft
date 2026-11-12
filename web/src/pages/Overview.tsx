@@ -75,7 +75,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
           </div>
           <div>
             <dt>{t('最近上报')}</dt>
-            <dd className="mono small">{ago(lastReport)}</dd>
+            <dd className="num small">{ago(lastReport)}</dd>
             <dd className="note">{t('agent 变动即报，每小时心跳')}</dd>
           </div>
         </dl>
@@ -136,7 +136,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
           {subscriptions.length === 0 ? (
             <Empty title={t('没有订阅链接')} body={t('从一条编排生成链接，客户端就能拉取聚合后的配置。')} />
           ) : (
-            <table>
+            <table className="mini-subs">
               <tbody>
                 {subscriptions.slice(0, 4).map((s) => {
                   const top = (s.devices ?? [])[0]
@@ -387,63 +387,67 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
         <h2>{t('延迟分布')}</h2>
         <span className="small muted">{t('{{n}} 个可用节点 · 每档 50 ms', { n: alive.length })}</span>
       </div>
-      <dl className="dist-stats">
-        <div>
-          <dt>{t('中位数')}</dt>
-          <dd className="num">
-            {pct(0.5)}
-            <span>ms</span>
-          </dd>
-        </div>
-        <div>
-          <dt>P90</dt>
-          <dd className="num">
-            {pct(0.9)}
-            <span>ms</span>
-          </dd>
-        </div>
-        <div>
-          <dt>{t('低于 100 ms')}</dt>
-          <dd className="num">
-            {fast}
-            <span>{t('个')}</span>
-          </dd>
-        </div>
-        <div>
-          <dt>{t('不可用')}</dt>
-          <dd className={`num${down ? ' is-bad' : ''}`}>
-            {down}
-            <span>{t('个')}</span>
-          </dd>
-        </div>
-      </dl>
-      <div
-        className="dist"
-        role="img"
-        aria-label={bins
-          .map((b) => t('{{from}}–{{to}} ms：{{count}} 个', { from: b.from, to: b.from + BIN, count: b.count }))
-          .join(', ')}
-      >
-        {bins.map((b) => (
-          <div
-            key={b.from}
-            className="dist-col"
-            title={t('{{from}}–{{to}} ms · {{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })}
-          >
-            <span className="dist-count num">{b.count || ''}</span>
-            <span
-              className="dist-bar"
-              data-fast={b.from < 100}
-              style={{ height: `${(b.count / peak) * 100}%` }}
-            />
+      <div className="dist-layout">
+        <dl className="dist-stats">
+          <div>
+            <dt>{t('中位数')}</dt>
+            <dd className="num">
+              {pct(0.5)}
+              <span>ms</span>
+            </dd>
           </div>
-        ))}
-      </div>
-      <div className="dist-axis num">
-        {bins.map((b) => (
-          <span key={b.from}>{b.from}</span>
-        ))}
-        <span>{top}</span>
+          <div>
+            <dt>P90</dt>
+            <dd className="num">
+              {pct(0.9)}
+              <span>ms</span>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('低于 100 ms')}</dt>
+            <dd className="num">
+              {fast}
+              <span>{t('个')}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('不可用')}</dt>
+            <dd className={`num${down ? ' is-bad' : ''}`}>
+              {down}
+              <span>{t('个')}</span>
+            </dd>
+          </div>
+        </dl>
+        <div>
+          <div
+            className="dist"
+            role="img"
+            aria-label={bins
+              .map((b) => t('{{from}}–{{to}} ms：{{count}} 个', { from: b.from, to: b.from + BIN, count: b.count }))
+              .join(', ')}
+          >
+            {bins.map((b) => (
+              <div
+                key={b.from}
+                className="dist-col"
+                title={t('{{from}}–{{to}} ms · {{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })}
+              >
+                <span className="dist-count num">{b.count || ''}</span>
+                <span
+                  className="dist-bar"
+                  data-fast={b.from < 100}
+                  style={{ height: `${(b.count / peak) * 100}%` }}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="dist-axis num">
+            {bins.map((b) => (
+              <span key={b.from}>{b.from}</span>
+            ))}
+            <span>{top}</span>
+          </div>
+        </div>
       </div>
     </section>
   )

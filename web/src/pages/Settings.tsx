@@ -149,7 +149,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
           <h2>{t('面板口令')}</h2>
           <span className="small muted">{t('保存在 weft.db，走 Argon2id')}</span>
         </div>
-        <div className="form-grid">
+        <div className="form-grid three">
           <label className="field">
             <span>{t('当前口令')}</span>
             <input
