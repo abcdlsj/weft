@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
  *  It is the product's own shape — several threads, one cloth. */
 export function WeaveStrip({
   segments,
-  width = 132,
+  width = 110,
 }: {
   segments: { label: string; count: number }[]
   width?: number
@@ -13,12 +13,10 @@ export function WeaveStrip({
   const total = segments.reduce((a, s) => a + s.count, 0)
   const title = segments.map((s) => `${s.label} · ${s.count}`).join('\n')
   return (
-    <div className="weave-cell">
-      <div className="weave" style={{ width }} role="img" aria-label={title} title={title}>
-        {segments.map((s) => (
-          <span key={s.label} style={{ flexGrow: Math.max(s.count, 0.6) / total }} />
-        ))}
-      </div>
+    <div className="weave" style={{ width }} role="img" aria-label={title} title={title}>
+      {segments.map((s) => (
+        <span key={s.label} style={{ flexGrow: Math.max(s.count, 0.6) / total }} />
+      ))}
     </div>
   )
 }
@@ -29,11 +27,15 @@ export function NodeThreads({ nodes }: { nodes: { key: string; name: string; ali
   if (nodes.length === 0) return <span className="muted">—</span>
   const alive = nodes.filter((n) => n.alive).length
   return (
-    <span className="threads" role="img" aria-label={t('{{alive}} / {{total}} 个节点可用', { alive, total: nodes.length })}>
+    <span
+      className="threads"
+      role="img"
+      aria-label={t('{{alive}} / {{total}} 个节点可用', { alive, total: nodes.length })}
+    >
       {nodes.map((n) => (
         <span
           key={n.key}
-          className={n.alive ? 'threads__cell' : 'threads__cell threads__cell--down'}
+          data-down={!n.alive}
           title={`${n.name} · ${n.alive ? `${n.delayMs} ms` : t('不可用')}`}
         />
       ))}

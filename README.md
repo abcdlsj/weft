@@ -56,7 +56,7 @@ make build          # panel + binary, single file
 | backup | `internal/weft/backup.go` | template / rule-set / bundle export and idempotent restore |
 | hardening | `internal/weft/security.go`, `ratelimit.go` | security headers, login and subscription rate limits |
 | device naming | `internal/weft/device.go` | User-Agent to client name, IP, optional `?tag=` override |
-| panel | `web/` | React + TypeScript SPA, five screens, dark mode, PWA, self-hosted fonts and icons |
+| panel | `web/` | React + TypeScript SPA on water.css, plain water-and-rule layout, system fonts, dark mode, PWA, self-hosted icons |
 | demo fleet | `internal/weft/seed.go` | `--demo` seeds hosts, nodes, bundles and a live ticker |
 | icon generator | `tools/icons` | renders the PWA icons from the brand mark |
 | CI + release | `.github/workflows/` | gofmt/vet/test/build on every push, archives on every `v*` tag |

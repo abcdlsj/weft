@@ -112,16 +112,18 @@ weft agent --server ... --token ... \
 
 ## 6. 面板
 
-技术：Go `embed` 静态资源 + Vite/React/TS + Tailwind；`vite-plugin-pwa` 出 manifest 与 service worker；Safari 支持靠 `apple-mobile-web-app-capable`、`apple-touch-icon`、`theme-color`、`safe-area-inset` 与 `viewport-fit=cover`。
+技术：Go `embed` 静态资源 + Vite/React/TS + [water.css](https://watercss.kognise.dev/)；样式只补 water.css 无从知道的部分（顶栏、表格密度、图表、节点选择器、原生 `<dialog>`）；`vite-plugin-pwa` 出 manifest 与 service worker；Safari 支持靠 `apple-mobile-web-app-capable`、`apple-touch-icon`、`theme-color`、`safe-area-inset` 与 `viewport-fit=cover`。
 
-信息架构（4 个目的地，移动端底部 tab / 桌面侧栏）：
+信息架构（6 个目的地，桌面顶部导航；手机上同一组链接换行）：
 
-1. **概览** — 在线机器数、节点总数/存活比、订阅最近访问；机器卡片带延迟脉冲。
-2. **机器** — 列表 + 详情（类型、最后上报、节点表、接入命令一键复制）；抽屉里可直接粘贴导入或手工添加节点。
-3. **编排** — Bundle 列表 → 编辑器（左侧节点选择、右侧分组预览、顶部实时 YAML 预览）。
+1. **概览** — 在线机器数、节点总数/存活比、订阅最近访问、延迟趋势与分布。
+2. **机器** — 列表 + 详情（类型、最后上报、节点表、接入命令一键复制）；对话框里可直接粘贴导入或手工添加节点。
+3. **编排** — Bundle 列表 → 编辑器（左侧节点选择、右侧实时预览）。
 4. **订阅** — 链接列表、QR、复制、吊销、访问记录。
+5. **规则** — 规则集列表、YAML 编辑、来源刷新与差异对比。
+6. **设置** — 主题与语言、面板口令、默认模板、备份恢复。
 
-视觉方向由 `taste-skill` 的 app-screen 路径确定（`draw.mjs --app`），并按其 house rules 用 `inspect.mjs --app` 在真实浏览器中校验：无渐变、无发光、无彩色图表、重复面板用安静边框；数字必须真实可加总。
+视觉规则：water.css 负责控件与排版，面板只加一条分隔线、一个强调色（链接蓝）和等宽数字；不用卡片、阴影、渐变，字色与背景全部走 water.css 变量，深浅色跟随 `data-theme`。数据本身（织线、节点线、延迟条）可以着色，其余保持中性。
 
 ## 7. 技术选型
 

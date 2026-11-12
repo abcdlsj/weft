@@ -1,13 +1,10 @@
 // weft service worker: the shell works offline, the data never comes from cache.
-const CACHE = 'weft-v2'
+const CACHE = 'weft-v3'
 const SHELL = [
   '/',
   '/manifest.webmanifest',
   '/icons/mark.svg',
   '/icons/icon-192.png',
-  '/fonts/instrument-sans.woff2',
-  '/fonts/ibm-plex-mono-400.woff2',
-  '/fonts/ibm-plex-mono-500.woff2',
 ]
 
 self.addEventListener('install', (event) => {
@@ -53,7 +50,7 @@ self.addEventListener('fetch', (event) => {
     caches.match(request).then((hit) => {
       if (hit) return hit
       return fetch(request).then((res) => {
-        if (res.ok && (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/'))) {
+        if (res.ok && (url.pathname.startsWith('/assets/'))) {
           const copy = res.clone()
           caches.open(CACHE).then((c) => c.put(request, copy))
         }

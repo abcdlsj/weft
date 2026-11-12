@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ago, clock, type ProxyNode, type SeriesPoint } from '../api'
 import { NodeThreads } from '../weave'
-import { Icon } from '../icons'
 import { Copy, Empty, StatusPill } from '../ui'
 import type { PageProps } from '../App'
 
@@ -25,167 +24,157 @@ export function Overview({ state, refresh, navigate }: PageProps) {
 
   return (
     <>
-      <div className="title-row">
+      <div className="page-head">
         <div>
           <h1>{t('概览')}</h1>
           <p className="sub">
             {t('{{online}} 台在线 · {{alive}} 个节点可用', { online: stats.hostsOnline, alive: stats.nodesAlive })}
-            {state.demo && <span className="tag">{t('演示数据')}</span>}
+            {state.demo && <span className="badge"> {t('演示数据')}</span>}
           </p>
         </div>
-        <div className="title-actions">
-          <button className="btn btn--quiet" onClick={() => void refresh()}>
-            <Icon name="refresh" />
+        <div className="actions">
+          <button className="quiet" onClick={() => void refresh()}>
             {t('刷新')}
           </button>
-          <button className="btn btn--primary" onClick={() => navigate('/bundles/new')}>
-            <Icon name="plus" />
+          <button className="primary" onClick={() => navigate('/bundles/new')}>
             {t('新建编排')}
           </button>
         </div>
       </div>
 
-      <section className="panel kpi">
-        <div className="kpi__cell">
-          <p className="label">{t('在线机器')}</p>
-          <p className="kpi__value">
-            {stats.hostsOnline}
-            <span className="kpi__unit">/ {stats.hostsTotal}</span>
-          </p>
-          <p className="kpi__meta">{stats.hostsOnline === stats.hostsTotal ? t('全部已上报') : t('有机器未上报')}</p>
-        </div>
-        <div className="kpi__cell">
-          <p className="label">{t('可用节点')}</p>
-          <p className="kpi__value">
-            {stats.nodesAlive}
-            <span className="kpi__unit">/ {stats.nodesTotal}</span>
-          </p>
-          <p className="kpi__meta">
-            {t('存活率 {{pct}}%', { pct: stats.nodesTotal ? Math.round((stats.nodesAlive / stats.nodesTotal) * 100) : 0 })}
-          </p>
-        </div>
-        <div className="kpi__cell">
-          <p className="label">{t('订阅拉取')}</p>
-          <p className="kpi__value">{stats.subHits}</p>
-          <p className="kpi__meta">
-            {t('{{links}} 条链接 · {{devices}} 台设备', { links: subscriptions.length, devices: deviceCount })}
-          </p>
-        </div>
-        <div className="kpi__cell">
-          <p className="label">{t('最近上报')}</p>
-          <p className="kpi__value kpi__value--sm">{ago(lastReport)}</p>
-          <p className="kpi__meta">{t('agent 变动即报，每小时心跳')}</p>
-        </div>
+      <section>
+        <dl className="stats">
+          <div>
+            <dt>{t('在线机器')}</dt>
+            <dd>
+              {stats.hostsOnline}
+              <small>/ {stats.hostsTotal}</small>
+            </dd>
+            <dd className="note">
+              {stats.hostsOnline === stats.hostsTotal ? t('全部已上报') : t('有机器未上报')}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('可用节点')}</dt>
+            <dd>
+              {stats.nodesAlive}
+              <small>/ {stats.nodesTotal}</small>
+            </dd>
+            <dd className="note">
+              {t('存活率 {{pct}}%', {
+                pct: stats.nodesTotal ? Math.round((stats.nodesAlive / stats.nodesTotal) * 100) : 0,
+              })}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('订阅拉取')}</dt>
+            <dd>{stats.subHits}</dd>
+            <dd className="note">
+              {t('{{links}} 条链接 · {{devices}} 台设备', { links: subscriptions.length, devices: deviceCount })}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('最近上报')}</dt>
+            <dd className="mono small">{ago(lastReport)}</dd>
+            <dd className="note">{t('agent 变动即报，每小时心跳')}</dd>
+          </div>
+        </dl>
       </section>
 
-      <div className="grid grid--overview">
-        <TrendPanel series={series} />
+      <TrendPanel series={series} />
 
-        <section className="panel span-4">
-          <header>
+      <div className="grid two">
+        <section>
+          <div className="section-head">
             <h2>{t('机器')}</h2>
-            <button className="card-link" onClick={() => navigate('/hosts')}>
+            <button className="text small" onClick={() => navigate('/hosts')}>
               {t('全部')}
             </button>
-          </header>
+          </div>
           {sortedHosts.length === 0 ? (
             <Empty title={t('还没有机器')} body={t('接入第一台运行 mihomo 的主机后，这里会显示它的状态。')} />
           ) : (
-            <>
-              <ul className="hostlist">
+            <table>
+              <tbody>
                 {sortedHosts.slice(0, 4).map((h) => (
-                  <li key={h.id}>
-                    <button className="hostlist__row" onClick={() => navigate('/hosts')}>
-                      <span className="hostlist__name">{h.name}</span>
-                      <span className="hostlist__meta">
-                        {t('{{alive}}/{{total}} 节点 · {{ago}}', { alive: h.aliveCount, total: h.nodeCount, ago: ago(h.lastSeen) })}
+                  <tr key={h.id} className="click" onClick={() => navigate('/hosts')}>
+                    <td>
+                      <span className="cell-main">{h.name}</span>
+                      <span className="cell-sub">
+                        {t('{{alive}}/{{total}} 节点 · {{ago}}', {
+                          alive: h.aliveCount,
+                          total: h.nodeCount,
+                          ago: ago(h.lastSeen),
+                        })}
                       </span>
+                    </td>
+                    <td>
+                      <NodeThreads nodes={nodesByHost.get(h.id) ?? []} />
+                    </td>
+                    <td>
                       <StatusPill status={h.status} />
-                      <span className="hostlist__threads">
-                        <NodeThreads nodes={nodesByHost.get(h.id) ?? []} />
-                      </span>
-                    </button>
-                  </li>
+                    </td>
+                  </tr>
                 ))}
-              </ul>
-              <div className="panel__foot">
-                <button className="card-link" onClick={() => navigate('/hosts')}>
-                  {t('管理机器与接入命令')}
-                </button>
-              </div>
-            </>
+              </tbody>
+            </table>
           )}
+          <p className="small">
+            <button className="text small" onClick={() => navigate('/hosts')}>
+              {t('管理机器与接入命令')}
+            </button>
+          </p>
         </section>
 
-        <section className="panel span-7">
-          <header>
+        <section>
+          <div className="section-head">
             <h2>{t('订阅')}</h2>
-            <button className="card-link" onClick={() => navigate('/subscriptions')}>
+            <button className="text small" onClick={() => navigate('/subscriptions')}>
               {t('管理')}
             </button>
-          </header>
+          </div>
           {subscriptions.length === 0 ? (
             <Empty title={t('没有订阅链接')} body={t('从一条编排生成链接，客户端就能拉取聚合后的配置。')} />
           ) : (
-            <>
-            <table className="table table--subs">
-              <thead>
-                <tr>
-                  <th>{t('名称')}</th>
-                  <th>{t('设备')}</th>
-                  <th className="num">{t('拉取')}</th>
-                  <th>{t('最近')}</th>
-                </tr>
-              </thead>
+            <table>
               <tbody>
                 {subscriptions.slice(0, 4).map((s) => {
                   const top = (s.devices ?? [])[0]
                   return (
                     <tr key={s.id}>
-                      <td data-label={t('名称')}>
-                        <span className={s.enabled ? '' : 'muted'}>{s.label || t('未命名')}</span>
+                      <td>
+                        <span className={s.enabled ? 'cell-main' : 'cell-main muted'}>{s.label || t('未命名')}</span>
                         <span className="cell-sub">{s.bundleName}</span>
                       </td>
-                      <td data-label={t('设备')} className="muted">
-                        {top ? (
-                          <span className="device-inline">
-                            <Icon name="device" />
-                            {top.device}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="num" data-label={t('拉取')}>
+                      <td className="small muted">{top ? top.device : '—'}</td>
+                      <td className="num" title={t('拉取')}>
                         {s.hits}
                       </td>
-                      <td data-label={t('最近')} className="muted">
-                        {s.lastUsedAt ? ago(s.lastUsedAt) : '—'}
-                      </td>
+                      <td className="small muted num">{s.lastUsedAt ? ago(s.lastUsedAt) : '—'}</td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
-            <div className="panel__foot">
-              <button className="card-link" onClick={() => navigate('/subscriptions')}>
-                {t('管理订阅与设备')}
-              </button>
-            </div>
-            </>
           )}
+          <p className="small">
+            <button className="text small" onClick={() => navigate('/subscriptions')}>
+              {t('管理订阅与设备')}
+            </button>
+          </p>
         </section>
-
-        <DelayPanel nodes={state.nodes} />
       </div>
 
-      <section className="panel connect-strip">
+      <DelayPanel nodes={state.nodes} />
+
+      <section>
         <h2>{t('接入下一台机器')}</h2>
-        <code className="mono connect-strip__cmd">{agentCmd}</code>
-        <div className="connect-strip__actions">
+        <pre>
+          <code>{agentCmd}</code>
+        </pre>
+        <div className="actions">
           <Copy value={agentCmd} label={t('复制模板')} />
-          <button className="btn btn--quiet btn--sm" onClick={() => navigate('/hosts')}>
-            <Icon name="plus" />
+          <button className="text small" onClick={() => navigate('/hosts')}>
             {t('生成 token')}
           </button>
         </div>
@@ -217,25 +206,10 @@ function TrendPanel({ series: all }: { series: SeriesPoint[] }) {
   const good = metric === 'delay' ? change < 0 : change > 0
 
   return (
-    <section className="panel span-8 trend">
-      <header>
-        <div className="trend__head">
-          <h2>{metric === 'delay' ? t('平均延迟') : t('可用节点')}</h2>
-          {last && (
-            <p className="trend__now">
-              <span className="trend__value num">{value(last)}</span>
-              <span className="trend__unit">{unit}</span>
-              {change !== 0 && (
-                <span className={`trend__delta num ${good ? 'is-good' : 'is-bad'}`}>
-                  {change > 0 ? '+' : '−'}
-                  {Math.abs(change)} {unit}
-                </span>
-              )}
-              <span className="trend__window">{t('较 6 小时前')}</span>
-            </p>
-          )}
-        </div>
-        <div className="segmented segmented--sm" role="group" aria-label={t('指标')}>
+    <section>
+      <div className="section-head">
+        <h2>{metric === 'delay' ? t('平均延迟') : t('可用节点')}</h2>
+        <div className="tabs" role="group" aria-label={t('指标')}>
           <button aria-pressed={metric === 'delay'} onClick={() => setMetric('delay')}>
             {t('延迟')}
           </button>
@@ -243,7 +217,20 @@ function TrendPanel({ series: all }: { series: SeriesPoint[] }) {
             {t('可用节点')}
           </button>
         </div>
-      </header>
+      </div>
+      {last && (
+        <p className="trend-value">
+          <strong className="num">{value(last)}</strong>
+          <span className="unit">{unit}</span>
+          {change !== 0 && (
+            <span className={`delta num ${good ? 'is-good' : 'is-bad'}`}>
+              {change > 0 ? '+' : '−'}
+              {Math.abs(change)} {unit}
+            </span>
+          )}
+          <span className="window">{t('较 6 小时前')}</span>
+        </p>
+      )}
       <LineChart series={series} value={value} unit={unit} metric={metric} />
     </section>
   )
@@ -272,11 +259,7 @@ function LineChart({
     return () => ro.disconnect()
   }, [])
   if (series.length < 2) {
-    return (
-      <div className="chart chart--empty">
-        <p className="empty__body">{t('还没有足够的上报数据')}</p>
-      </div>
-    )
+    return <div className="chart-empty">{t('还没有足够的上报数据')}</div>
   }
   const H = W < 600 ? 180 : 248
   const left = 34
@@ -310,7 +293,7 @@ function LineChart({
   const h = hover === null ? null : series[hover]
 
   return (
-    <figure className="chart" ref={box}>
+    <figure className="chart chart-wrap" ref={box}>
       <svg
         width={W}
         height={H}
@@ -365,13 +348,10 @@ function LineChart({
       </svg>
       {h && hover !== null && (
         <div
-          className="chart__tip"
+          className="chart-tip"
           style={{ left: `${(x(hover) / W) * 100}%`, transform: `translateX(${hover > series.length / 2 ? '-108%' : '8%'})` }}
         >
-          <span>{clock(h.at)}</span>
-          <b className="num">
-            {value(h)} {unit}
-          </b>
+          <span>{clock(h.at)}</span> <b className="num">{value(h)} {unit}</b>
         </div>
       )}
     </figure>
@@ -386,10 +366,8 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
   const down = nodes.length - alive.length
   if (nodes.length === 0) {
     return (
-      <section className="panel span-5">
-        <header>
-          <h2>{t('延迟分布')}</h2>
-        </header>
+      <section>
+        <h2>{t('延迟分布')}</h2>
         <Empty title={t('还没有节点')} body={t('机器上报后，这里按 50 ms 分档显示节点延迟。')} />
       </section>
     )
@@ -404,12 +382,12 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
   const fast = alive.filter((d) => d < 100).length
 
   return (
-    <section className="panel span-5">
-      <header>
+    <section>
+      <div className="section-head">
         <h2>{t('延迟分布')}</h2>
-        <span className="meta">{t('{{n}} 个可用节点 · 每档 50 ms', { n: alive.length })}</span>
-      </header>
-      <dl className="dist__stats">
+        <span className="small muted">{t('{{n}} 个可用节点 · 每档 50 ms', { n: alive.length })}</span>
+      </div>
+      <dl className="dist-stats">
         <div>
           <dt>{t('中位数')}</dt>
           <dd className="num">
@@ -439,18 +417,29 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
           </dd>
         </div>
       </dl>
-      <div className="dist" role="img" aria-label={bins.map((b) => t('{{from}}–{{to}} ms：{{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })).join(', ')}>
+      <div
+        className="dist"
+        role="img"
+        aria-label={bins
+          .map((b) => t('{{from}}–{{to}} ms：{{count}} 个', { from: b.from, to: b.from + BIN, count: b.count }))
+          .join(', ')}
+      >
         {bins.map((b) => (
-          <div key={b.from} className="dist__col" title={t('{{from}}–{{to}} ms · {{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })}>
-            <span className="dist__count num">{b.count || ''}</span>
+          <div
+            key={b.from}
+            className="dist-col"
+            title={t('{{from}}–{{to}} ms · {{count}} 个', { from: b.from, to: b.from + BIN, count: b.count })}
+          >
+            <span className="dist-count num">{b.count || ''}</span>
             <span
-              className={b.from < 100 ? 'dist__bar dist__bar--fast' : 'dist__bar'}
+              className="dist-bar"
+              data-fast={b.from < 100}
               style={{ height: `${(b.count / peak) * 100}%` }}
             />
           </div>
         ))}
       </div>
-      <div className="dist__axis num">
+      <div className="dist-axis num">
         {bins.map((b) => (
           <span key={b.from}>{b.from}</span>
         ))}

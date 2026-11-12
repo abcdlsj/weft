@@ -5,7 +5,6 @@ import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { diffLines, type Change } from 'diff'
 import { ago, api, type RuleSet } from '../api'
-import { Icon } from '../icons'
 import { Copy, Drawer, Empty, Modal, notify } from '../ui'
 import type { PageProps } from '../App'
 
@@ -134,97 +133,90 @@ export function Rules({ state, refresh, theme }: PageProps) {
 
   return (
     <>
-      <div className="title-row">
+      <div className="page-head">
         <div>
           <h1>{t('规则')}</h1>
           <p className="sub">{t('一套可复用的分流方案：rules、rule-providers 与额外代理组。')}</p>
         </div>
-        <div className="title-actions">
-          <button className="btn btn--primary" onClick={() => openNew()}>
-            <Icon name="plus" />
+        <div className="actions">
+          <button className="primary" onClick={() => openNew()}>
             {t('新建规则集')}
           </button>
         </div>
       </div>
 
-      <section className="panel">
+      <section>
         {state.ruleSets.length === 0 ? (
           <Empty
             title={t('还没有规则集')}
             body={t('从 GFW 列表导入，或从预设开始，再按自己的习惯改。')}
             action={
-              <button className="btn btn--primary" onClick={() => openNew()}>
+              <button className="primary" onClick={() => openNew()}>
                 {t('新建规则集')}
               </button>
             }
           />
         ) : (
-          <table className="table table--click">
-            <thead>
-              <tr>
-                <th>{t('名称')}</th>
-                <th>{t('规则数')}</th>
-                <th>{t('规则提供者')}</th>
-                <th>{t('被引用')}</th>
-                <th>{t('最近更新')}</th>
-                <th aria-label={t('操作')} />
-              </tr>
-            </thead>
-            <tbody>
-              {state.ruleSets.map((rs) => (
-                <tr
-                  key={rs.id}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={t('编辑 {{name}}', { name: rs.name })}
-                  onClick={() => void openEdit(rs)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      void openEdit(rs)
-                    }
-                  }}
-                >
-                  <td data-label={t('名称')}>
-                    <span className="cell-main">
-                      {rs.name}
-                      {!!rs.warningCount && (
-                        <span className="pill pill--warn" title={t('{{n}} 条引用警告', { n: rs.warningCount })}>
-                          {rs.warningCount}
-                        </span>
-                      )}
-                    </span>
-                    <span className="cell-sub">{rs.description || rs.source || '—'}</span>
-                  </td>
-                  <td className="num" data-label={t('规则数')}>
-                    {rs.ruleCount ?? 0}
-                  </td>
-                  <td className="num" data-label={t('规则提供者')}>
-                    {rs.providerCount ?? 0}
-                  </td>
-                  <td className="num" data-label={t('被引用')}>
-                    {rs.usedBy ? t('{{n}} 个编排', { n: rs.usedBy }) : <span className="muted">{t('未使用')}</span>}
-                  </td>
-                  <td className="num muted" data-label={t('最近更新')}>
-                    {ago(rs.updatedAt)}
-                  </td>
-                  <td className="cell-action">
-                    <Icon name="chevron" />
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('名称')}</th>
+                  <th className="num">{t('规则数')}</th>
+                  <th className="num">{t('规则提供者')}</th>
+                  <th className="num">{t('被引用')}</th>
+                  <th className="num">{t('最近更新')}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {state.ruleSets.map((rs) => (
+                  <tr
+                    key={rs.id}
+                    className="click"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={t('编辑 {{name}}', { name: rs.name })}
+                    onClick={() => void openEdit(rs)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        void openEdit(rs)
+                      }
+                    }}
+                  >
+                    <td>
+                      <span className="cell-main">
+                        {rs.name}
+                        {!!rs.warningCount && (
+                          <span className="badge" title={t('{{n}} 条引用警告', { n: rs.warningCount })}>
+                            {' '}
+                            {rs.warningCount}
+                          </span>
+                        )}
+                      </span>
+                      <span className="cell-sub">{rs.description || rs.source || '—'}</span>
+                    </td>
+                    <td className="num">{rs.ruleCount ?? 0}</td>
+                    <td className="num">{rs.providerCount ?? 0}</td>
+                    <td className="num small muted">
+                      {rs.usedBy ? t('{{n}} 个编排', { n: rs.usedBy }) : t('未使用')}
+                    </td>
+                    <td className="num small muted">{ago(rs.updatedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
-      <section className="panel panel--note">
-        <header>
+      <section>
+        <div className="section-head">
           <h2>{t('规则')}</h2>
-          <span className="meta">{t('一条编排可以被多条订阅引用')}</span>
-        </header>
-        <p className="prose">{t('规则集是编排的一部分；一条编排可以选择一套规则，生成配置时覆盖模板里的 rules。')}</p>
-        <ul className="facts facts--defs">
+          <span className="small muted">{t('一条编排可以被多条订阅引用')}</span>
+        </div>
+        <p>{t('规则集是编排的一部分；一条编排可以选择一套规则，生成配置时覆盖模板里的 rules。')}</p>
+        <ul className="facts">
           {state.rulePresets.map((p) => (
             <li key={p.key}>
               <span>{t(p.name)}</span>
@@ -241,16 +233,16 @@ export function Rules({ state, refresh, theme }: PageProps) {
           wide
           footer={
             <>
-              <button className="btn btn--quiet" onClick={() => setCreating(false)}>
+              <button className="quiet" onClick={() => setCreating(false)}>
                 {t('取消')}
               </button>
-              <button className="btn btn--primary" onClick={() => void create()} disabled={busy}>
+              <button className="primary" onClick={() => void create()} disabled={busy}>
                 {mode === 'import' ? t('拉取并创建') : t('创建规则集')}
               </button>
             </>
           }
         >
-          <div className="segmented" style={{ marginBottom: 18 }}>
+          <div className="tabs">
             {(
               [
                 ['preset', '从预设开始'],
@@ -295,10 +287,14 @@ export function Rules({ state, refresh, theme }: PageProps) {
                     </option>
                   ))}
                 </select>
-                <span className="field__hint">{preset ? t(preset.description) : ''}</span>
+                <span className="hint">{preset ? t(preset.description) : ''}</span>
               </label>
-              {preset && <pre className="code code--preview">{preset.content}</pre>}
-              <p className="prose muted">{t('这些预设在创建后会复制成你自己的规则集，随时可改。')}</p>
+              {preset && (
+                <pre>
+                  <code>{preset.content}</code>
+                </pre>
+              )}
+              <p className="small muted">{t('这些预设在创建后会复制成你自己的规则集，随时可改。')}</p>
             </>
           )}
 
@@ -306,7 +302,7 @@ export function Rules({ state, refresh, theme }: PageProps) {
             <label className="field">
               <span>{t('GFW 列表地址')}</span>
               <input className="mono" value={sourceURL} onChange={(e) => setSourceURL(e.target.value)} />
-              <span className="field__hint">{t('支持 gfwlist、Clash rule-provider 文本或含 rules 的 YAML。')}</span>
+              <span className="hint">{t('支持 gfwlist、Clash rule-provider 文本或含 rules 的 YAML。')}</span>
             </label>
           )}
 
@@ -320,14 +316,14 @@ export function Rules({ state, refresh, theme }: PageProps) {
                 theme={dark ? oneDark : 'light'}
                 onChange={setContent}
               />
-              <span className="field__hint">{t('只允许 rules、rule-providers、proxy-groups 三个键。')}</span>
+              <span className="hint">{t('只允许 rules、rule-providers、proxy-groups 三个键。')}</span>
             </div>
           )}
         </Modal>
       )}
 
       {editing && (
-        <Drawer title={editing.name} wide onClose={() => setEditing(null)}>
+        <Drawer title={editing.name} onClose={() => setEditing(null)}>
           <div className="form-grid">
             <label className="field">
               <span>{t('名称')}</span>
@@ -341,7 +337,7 @@ export function Rules({ state, refresh, theme }: PageProps) {
               />
             </label>
           </div>
-          <p className="prose muted">
+          <p className="small muted">
             {t('{{rules}} 条规则 · {{providers}} 个提供者', {
               rules: editing.ruleCount ?? 0,
               providers: editing.providerCount ?? 0,
@@ -357,11 +353,11 @@ export function Rules({ state, refresh, theme }: PageProps) {
               theme={dark ? oneDark : 'light'}
               onChange={(value) => setEditing({ ...editing, content: value })}
             />
-            <span className="field__hint">{t('只允许 rules、rule-providers、proxy-groups 三个键。')}</span>
+            <span className="hint">{t('只允许 rules、rule-providers、proxy-groups 三个键。')}</span>
           </div>
           {!!editing.warnings?.length && (
             <div className="warnings">
-              <p className="label">{t('引用警告')}</p>
+              <p>{t('引用警告')}</p>
               <ul className="facts">
                 {editing.warnings.map((w) => (
                   <li key={w}>
@@ -372,22 +368,21 @@ export function Rules({ state, refresh, theme }: PageProps) {
             </div>
           )}
           {editing.source && !editing.source.startsWith('preset:') && (
-            <p className="prose muted">
+            <p className="small muted">
               {t('规则集来源')}：<span className="mono">{editing.source}</span>
             </p>
           )}
-          <div className="row-actions">
-            <button className="btn btn--primary" disabled={busy} onClick={() => void save()}>
+          <div className="actions">
+            <button className="primary" disabled={busy} onClick={() => void save()}>
               {t('保存')}
             </button>
             {(editing.source.startsWith('http://') || editing.source.startsWith('https://')) && (
-              <button className="btn btn--quiet" disabled={refreshing} onClick={() => void refreshFromSource()}>
+              <button className="quiet" disabled={refreshing} onClick={() => void refreshFromSource()}>
                 {refreshing ? t('拉取中…') : t('从来源刷新')}
               </button>
             )}
             <Copy value={editing.content ?? ''} label={t('复制')} />
-            <button className="btn btn--danger btn--sm" onClick={() => void remove(editing)}>
-              <Icon name="trash" />
+            <button className="danger small" onClick={() => void remove(editing)}>
               {t('删除')}
             </button>
           </div>
@@ -401,16 +396,16 @@ export function Rules({ state, refresh, theme }: PageProps) {
           wide
           footer={
             <>
-              <button className="btn btn--quiet" onClick={() => setDiff(null)}>
+              <button className="quiet" onClick={() => setDiff(null)}>
                 {t('取消')}
               </button>
               <button
-                className="btn btn--primary"
+                className="primary"
                 disabled={busy}
                 onClick={() => {
-                  const content = diff.content
+                  const next = diff.content
                   setDiff(null)
-                  void save(content)
+                  void save(next)
                 }}
               >
                 {t('应用并保存')}
@@ -418,8 +413,8 @@ export function Rules({ state, refresh, theme }: PageProps) {
             </>
           }
         >
-          <p className="prose muted">{t('绿色为新增，红色为删除，灰色为未变。')}</p>
-          <pre className="code code--preview diff-view">
+          <p className="small muted">{t('绿色为新增，红色为删除，灰色为未变。')}</p>
+          <pre className="diff-view">
             {diff.parts.map((part, i) =>
               part.value
                 .replace(/\n$/, '')

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, type ProxyNode } from './api'
-import { Icon } from './icons'
 import { notify } from './ui'
 
 /* Protocol definitions drive the form. Adding a protocol means adding one entry
@@ -222,37 +221,24 @@ export function NodeForm({
   }, [spec])
 
   return (
-    <div className="node-form">
-      <div className="node-form__proto">
-        <div className="segmented">
-          {(Object.keys(PROTOCOLS) as Protocol[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={key === proto}
-              onClick={() => switchProtocol(key)}
-            >
-              {PROTOCOLS[key].label}
-            </button>
-          ))}
-        </div>
-        <p className="node-form__blurb">{t(spec.blurb)}</p>
+    <div>
+      <div className="tabs">
+        {(Object.keys(PROTOCOLS) as Protocol[]).map((key) => (
+          <button key={key} type="button" aria-pressed={key === proto} onClick={() => switchProtocol(key)}>
+            {PROTOCOLS[key].label}
+          </button>
+        ))}
       </div>
+      <p className="small muted">{t(spec.blurb)}</p>
 
       {groups.map((group, gi) => (
-        <div className="node-form__group" key={group.name || gi}>
-          {group.name && <h3 className="form-section">{group.name}</h3>}
-          <div className="node-form__grid">
-            {group.fields.map((field) => (
-              <label
-                key={field.key}
-                className={`field${field.wide ? ' field--wide' : ''}${field.kind === 'switch' ? ' field--switch' : ''}`}
-              >
-                <span>
-                  {t(field.label)}
-                  {field.required && <i className="req">{t('必填')}</i>}
-                </span>
-                {field.kind === 'switch' ? (
+        <div key={group.name || gi}>
+          {group.name && <h3>{group.name}</h3>}
+          <div className="form-grid">
+            {group.fields.map((field) =>
+              field.kind === 'switch' ? (
+                <div className="field" key={field.key}>
+                  <span>{t(field.label)}</span>
                   <button
                     type="button"
                     className="switch"
@@ -265,40 +251,49 @@ export function NodeForm({
                   >
                     <span />
                   </button>
-                ) : field.options ? (
-                  <select
-                    value={values[field.key] ?? ''}
-                    onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                  >
-                    {field.options.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt || t('不设置')}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type={field.kind === 'password' ? 'password' : 'text'}
-                    inputMode={field.kind === 'number' ? 'numeric' : undefined}
-                    value={values[field.key] ?? ''}
-                    placeholder={field.placeholder}
-                    onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                  />
-                )}
-                {field.hint && <span className="field__hint">{t(field.hint)}</span>}
-              </label>
-            ))}
+                  {field.hint && <span className="hint">{t(field.hint)}</span>}
+                </div>
+              ) : (
+                <label key={field.key} className={`field${field.wide ? ' full' : ''}`}>
+                  <span>
+                    {t(field.label)}
+                    {field.required && <i className="req">{t('必填')}</i>}
+                  </span>
+                  {field.options ? (
+                    <select
+                      value={values[field.key] ?? ''}
+                      onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+                    >
+                      {field.options.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt || t('不设置')}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={field.kind === 'password' ? 'password' : 'text'}
+                      inputMode={field.kind === 'number' ? 'numeric' : undefined}
+                      value={values[field.key] ?? ''}
+                      placeholder={field.placeholder}
+                      onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+                    />
+                  )}
+                  {field.hint && <span className="hint">{t(field.hint)}</span>}
+                </label>
+              ),
+            )}
           </div>
         </div>
       ))}
 
-      {error && <p className="form-error">{error}</p>}
+      {error && <p className="error">{error}</p>}
 
-      <div className="row-actions">
-        <button className="btn btn--primary" onClick={() => void submit()} disabled={busy}>
+      <div className="actions">
+        <button className="primary" onClick={() => void submit()} disabled={busy}>
           {busy ? t('保存中…') : t('保存节点')}
         </button>
-        <button className="btn btn--quiet" onClick={onCancel}>
+        <button className="quiet" onClick={onCancel}>
           {t('取消')}
         </button>
       </div>
@@ -379,7 +374,7 @@ export function LinkImport({
   }
 
   return (
-    <div className="link-import">
+    <div>
       <textarea
         className="code-input"
         rows={5}
@@ -390,22 +385,22 @@ export function LinkImport({
         onChange={(e) => setText(e.target.value)}
       />
       {preview.length > 0 && (
-        <ul className="link-import__list">
+        <ul className="link-list">
           {preview.map((row, i) => (
             <li key={`${row.link}-${i}`} data-ok={row.ok}>
-              <span className="link-import__proto">{row.proto}</span>
-              <span className="link-import__name truncate">{row.name || t('未命名')}</span>
-              <span className="link-import__where mono truncate">{row.where}</span>
+              <span className="proto">{row.proto}</span>
+              <span className="truncate">{row.name || t('未命名')}</span>
+              <span className="where mono truncate">{row.where}</span>
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="form-error">{error}</p>}
-      <div className="row-actions">
-        <button className="btn btn--primary" onClick={() => void submit()} disabled={busy || !usable}>
+      {error && <p className="error">{error}</p>}
+      <div className="actions">
+        <button className="primary" onClick={() => void submit()} disabled={busy || !usable}>
           {busy ? t('导入中…') : usable ? t('导入 {{n}} 条', { n: usable }) : t('导入')}
         </button>
-        <button className="btn btn--quiet" onClick={onCancel}>
+        <button className="quiet" onClick={onCancel}>
           {t('取消')}
         </button>
       </div>
@@ -422,7 +417,7 @@ const SOURCE_LABEL: Record<string, string> = {
 export function SourceTag({ source }: { source: string }) {
   const { t } = useTranslation()
   return (
-    <span className={`source source--${source}`} title={sourceTitle(source, t)}>
+    <span className="badge" title={sourceTitle(source, t)}>
       {t(SOURCE_LABEL[source] ?? source)}
     </span>
   )
@@ -452,71 +447,75 @@ export function NodeTable({
 }) {
   const { t } = useTranslation()
   if (nodes.length === 0) {
-    return <p className="node-empty">{t('还没有节点。粘贴链接，或手工填一条。')}</p>
+    return <p className="small muted">{t('还没有节点。粘贴链接，或手工填一条。')}</p>
   }
   return (
-    <table className={`table table--nodes${compact ? ' table--compact' : ''}`}>
-      <thead>
-        <tr>
-          <th>{t('节点')}</th>
-          <th>{t('协议')}</th>
-          <th>{t('地址')}</th>
-          <th>{t('来源')}</th>
-          <th className="num">{t('延迟')}</th>
-          {(onEdit || onDelete) && <th aria-label={t('操作')} />}
-        </tr>
-      </thead>
-      <tbody>
-        {nodes.map((node) => (
-          <tr key={node.key}>
-            <td data-label={t('节点')}>
-              <span className="node-name truncate">{node.name}</span>
-            </td>
-            <td data-label={t('协议')} className="mono muted">
-              {node.type}
-            </td>
-            <td data-label={t('地址')} className="mono muted truncate">
-              {node.server}:{node.port}
-            </td>
-            <td data-label={t('来源')}>
-              <SourceTag source={node.source} />
-            </td>
-            <td className="num" data-label={t('延迟')}>
-              {node.alive ? (node.delayMs ? `${node.delayMs} ms` : '—') : <span className="muted">{t('不可用')}</span>}
-            </td>
-            {(onEdit || onDelete) && (
-              <td className="cell-action">
-                {node.source === 'manual' ? (
-                  <span className="node-row-actions">
-                    {onEdit && (
-                      <button
-                        className="icon-btn icon-btn--sm"
-                        aria-label={t('编辑 {{name}}', { name: node.name })}
-                        onClick={() => onEdit(node)}
-                      >
-                        <Icon name="gear" />
-                      </button>
-                    )}
-                    {onDelete && (
-                      <button
-                        className="icon-btn icon-btn--sm"
-                        aria-label={t('删除 {{name}}', { name: node.name })}
-                        onClick={() => onDelete(node)}
-                      >
-                        <Icon name="trash" />
-                      </button>
-                    )}
-                  </span>
+    <div className="table-wrap">
+      <table className={compact ? 'small' : undefined}>
+        <thead>
+          <tr>
+            <th>{t('节点')}</th>
+            <th>{t('协议')}</th>
+            <th>{t('地址')}</th>
+            <th>{t('来源')}</th>
+            <th className="num">{t('延迟')}</th>
+            {(onEdit || onDelete) && <th aria-label={t('操作')} />}
+          </tr>
+        </thead>
+        <tbody>
+          {nodes.map((node) => (
+            <tr key={node.key}>
+              <td>
+                <span className="mono truncate">{node.name}</span>
+              </td>
+              <td className="mono small muted">{node.type}</td>
+              <td className="mono small muted truncate">
+                {node.server}:{node.port}
+              </td>
+              <td>
+                <SourceTag source={node.source} />
+              </td>
+              <td className="num">
+                {node.alive ? (
+                  node.delayMs ? `${node.delayMs} ms` : '—'
                 ) : (
-                  <span className="muted node-readonly" title={t('自动采集，不能在这里改')}>
-                    {t('自动')}
-                  </span>
+                  <span className="muted">{t('不可用')}</span>
                 )}
               </td>
-            )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+              {(onEdit || onDelete) && (
+                <td>
+                  {node.source === 'manual' ? (
+                    <span className="row-actions">
+                      {onEdit && (
+                        <button
+                          className="icon small"
+                          aria-label={t('编辑 {{name}}', { name: node.name })}
+                          onClick={() => onEdit(node)}
+                        >
+                          {t('编辑')}
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          className="icon small"
+                          aria-label={t('删除 {{name}}', { name: node.name })}
+                          onClick={() => onDelete(node)}
+                        >
+                          {t('删除')}
+                        </button>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="small muted" title={t('自动采集，不能在这里改')}>
+                      {t('自动')}
+                    </span>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

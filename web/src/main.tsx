@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client'
+import 'water.css'
 import App from './App'
 import './styles.css'
 

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ago, api, type Host, type HostKind, type ProxyNode } from '../api'
-import { Icon } from '../icons'
 import { Copy, Drawer, Empty, Modal, StatusPill, notify } from '../ui'
 import { LinkImport, NodeForm, NodeTable, protocolOf } from '../nodes'
 import { NodeThreads } from '../weave'
@@ -136,132 +135,123 @@ export function Hosts({ state, refresh }: PageProps) {
 
   return (
     <>
-      <div className="title-row">
+      <div className="page-head">
         <div>
           <h1>{t('机器')}</h1>
           <p className="sub">
             {t('跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 weft 自己拉。')}
           </p>
         </div>
-        <div className="title-actions">
-          <button className="btn btn--primary" onClick={() => setAdding(true)}>
-            <Icon name="plus" />
+        <div className="actions">
+          <button className="primary" onClick={() => setAdding(true)}>
             {t('添加机器')}
           </button>
         </div>
       </div>
 
-      <section className="panel">
+      <section>
         {state.hosts.length === 0 ? (
           <Empty
             title={t('还没有机器')}
             body={t('添加一台机器，拿到它的接入命令，在主机上跑起来即可。')}
             action={
-              <button className="btn btn--primary" onClick={() => setAdding(true)}>
+              <button className="primary" onClick={() => setAdding(true)}>
                 {t('添加机器')}
               </button>
             }
           />
         ) : (
-          <table className="table table--click table--hosts">
-            <thead>
-              <tr>
-                <th>{t('机器')}</th>
-                <th>{t('状态')}</th>
-                <th>{t('节点')}</th>
-                <th className="num">{t('可用')}</th>
-                <th className="num">{t('平均延迟')}</th>
-                <th>{t('数据来源')}</th>
-                <th aria-label={t('操作')} />
-              </tr>
-            </thead>
-            <tbody>
-              {state.hosts.map((h) => {
-                const all = state.nodes.filter((n) => n.hostId === h.id)
-                const nodes = all.filter((n) => n.alive)
-                const avg = nodes.length
-                  ? Math.round(nodes.reduce((a, n) => a + n.delayMs, 0) / nodes.length)
-                  : 0
-                return (
-                  <tr
-                    key={h.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={t('查看 {{name}} 的详情', { name: h.name })}
-                    data-summary={t('{{alive}}/{{total}} 可用 · {{delay}}', { alive: h.aliveCount, total: h.nodeCount, delay: avg ? `${avg} ms` : '—' })}
-                    onClick={() => {
-                      setSelectedID(h.id)
-                      setFreshToken(null)
-                      closeNodeEditor()
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
+          <div className="table-wrap">
+            <table className="hosts">
+              <thead>
+                <tr>
+                  <th>{t('机器')}</th>
+                  <th>{t('状态')}</th>
+                  <th>{t('节点')}</th>
+                  <th className="num">{t('可用')}</th>
+                  <th className="num">{t('平均延迟')}</th>
+                  <th>{t('数据来源')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {state.hosts.map((h) => {
+                  const all = state.nodes.filter((n) => n.hostId === h.id)
+                  const nodes = all.filter((n) => n.alive)
+                  const avg = nodes.length
+                    ? Math.round(nodes.reduce((a, n) => a + n.delayMs, 0) / nodes.length)
+                    : 0
+                  return (
+                    <tr
+                      key={h.id}
+                      className="click"
+                      tabIndex={0}
+                      role="button"
+                      aria-label={t('查看 {{name}} 的详情', { name: h.name })}
+                      onClick={() => {
                         setSelectedID(h.id)
                         setFreshToken(null)
                         closeNodeEditor()
-                      }
-                    }}
-                  >
-                    <td data-label={t('机器')}>
-                      <span className="cell-main">{h.name}</span>
-                      <span className="cell-sub mono">
-                        {h.kind === 'static'
-                          ? 'hy2 / v2ray'
-                          : h.kind === 'sub'
-                            ? h.subUrl || '—'
-                            : h.controller || '—'}
-                      </span>
-                    </td>
-                    <td data-label={t('状态')}>
-                      <StatusPill status={h.status} />
-                    </td>
-                    <td data-label={t('节点')} className="cell-threads">
-                      <NodeThreads nodes={all} />
-                    </td>
-                    <td className="num" data-label={t('可用')}>
-                      <span>
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedID(h.id)
+                          setFreshToken(null)
+                          closeNodeEditor()
+                        }
+                      }}
+                    >
+                      <td>
+                        <span className="cell-main">{h.name}</span>
+                        <span className="cell-sub mono">
+                          {h.kind === 'static'
+                            ? 'hy2 / v2ray'
+                            : h.kind === 'sub'
+                              ? h.subUrl || '—'
+                              : h.controller || '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <StatusPill status={h.status} />
+                      </td>
+                      <td>
+                        <NodeThreads nodes={all} />
+                      </td>
+                      <td className="num">
                         {h.aliveCount}
                         <span className="muted"> / {h.nodeCount}</span>
-                      </span>
-                    </td>
-                    <td className="num" data-label={t('平均延迟')}>
-                      {avg ? `${avg} ms` : '—'}
-                    </td>
-                    <td data-label={t('数据来源')} className="muted">
-                      {h.kind === 'sub'
-                        ? h.subCheckedAt
-                          ? t('订阅 · {{ago}}', { ago: ago(h.subCheckedAt) })
-                          : t('订阅 · 未拉取')
-                        : h.kind === 'static'
-                          ? h.lastSeen
-                            ? t('配置 · {{ago}}', { ago: ago(h.lastSeen) })
-                            : t('配置 · 未上报')
-                          : h.lastSeen
-                            ? t('mihomo · {{ago}}', { ago: ago(h.lastSeen) })
-                            : t('mihomo · 未上报')}
-                    </td>
-                    <td className="cell-action">
-                      <Icon name="chevron" />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td className="num">{avg ? `${avg} ms` : '—'}</td>
+                      <td className="small muted">
+                        {h.kind === 'sub'
+                          ? h.subCheckedAt
+                            ? t('订阅 · {{ago}}', { ago: ago(h.subCheckedAt) })
+                            : t('订阅 · 未拉取')
+                          : h.kind === 'static'
+                            ? h.lastSeen
+                              ? t('配置 · {{ago}}', { ago: ago(h.lastSeen) })
+                              : t('配置 · 未上报')
+                            : h.lastSeen
+                              ? t('mihomo · {{ago}}', { ago: ago(h.lastSeen) })
+                              : t('mihomo · 未上报')}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
-      <section className="panel panel--note">
-        <header>
+      <section>
+        <div className="section-head">
           <h2>{t('两种接入方式')}</h2>
-          <span className="meta">{t('token 在添加机器时生成一次')}</span>
-        </header>
-        <div className="panel-split">
+          <span className="small muted">{t('token 在添加机器时生成一次')}</span>
+        </div>
+        <div className="grid two">
           <div>
-            <p className="prose">
-              {t('agent 只读本机，节点与凭据不出机器；上报是出站请求，NAT 后也能用。')}
-            </p>
+            <p>{t('agent 只读本机，节点与凭据不出机器；上报是出站请求，NAT 后也能用。')}</p>
             <ul className="facts">
               <li>
                 <span>{t('mihomo 机器')}</span>
@@ -278,18 +268,18 @@ export function Hosts({ state, refresh }: PageProps) {
             </ul>
           </div>
           <div>
-            <pre className="code">{`# ${t('只跑服务的机器')}
+            <pre>
+              <code>{`# ${t('只跑服务的机器')}
 weft agent --server ${state.publicBase} \\
   --token <host token> \\
   --hysteria-config /etc/hysteria/config.yaml \\
   --xray-config /usr/local/etc/xray/config.json \\
-  --public-host <public IP>`}</pre>
-            <div className="row-actions">
-              <Copy
-                label={t('复制模板')}
-                value={`weft agent --server ${state.publicBase} --token <host token> --hysteria-config /etc/hysteria/config.yaml --xray-config /usr/local/etc/xray/config.json --public-host <public IP>`}
-              />
-            </div>
+  --public-host <public IP>`}</code>
+            </pre>
+            <Copy
+              label={t('复制模板')}
+              value={`weft agent --server ${state.publicBase} --token <host token> --hysteria-config /etc/hysteria/config.yaml --xray-config /usr/local/etc/xray/config.json --public-host <public IP>`}
+            />
           </div>
         </div>
       </section>
@@ -300,11 +290,11 @@ weft agent --server ${state.publicBase} \\
           onClose={() => setAdding(false)}
           footer={
             <>
-              <button className="btn btn--quiet" onClick={() => setAdding(false)}>
+              <button className="quiet" onClick={() => setAdding(false)}>
                 {t('取消')}
               </button>
               <button
-                className="btn btn--primary"
+                className="primary"
                 onClick={() => void create()}
                 disabled={busy || !name.trim() || (kind === 'sub' && !url.trim())}
               >
@@ -313,12 +303,11 @@ weft agent --server ${state.publicBase} \\
             </>
           }
         >
-          <div className="kind-choice">
+          <div className="choice">
             {(Object.keys(KIND_COPY) as HostKind[]).map((key) => (
               <button
                 key={key}
                 type="button"
-                className="kind-choice__option"
                 aria-pressed={kind === key}
                 onClick={() => setKind(key)}
               >
@@ -336,7 +325,7 @@ weft agent --server ${state.publicBase} \\
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void create()}
             />
-            <span className="field__hint">{t('用作订阅里的节点前缀，不要含空格或斜杠。')}</span>
+            <span className="hint">{t('用作订阅里的节点前缀，不要含空格或斜杠。')}</span>
           </label>
           {kind === 'sub' && (
             <label className="field">
@@ -347,7 +336,7 @@ weft agent --server ${state.publicBase} \\
                 onChange={(e) => setURL(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && void create()}
               />
-              <span className="field__hint">
+              <span className="hint">
                 {t('支持 Clash 配置、base64 链接列表和明文链接；每 6 小时自动重拉一次。')}
               </span>
             </label>
@@ -361,12 +350,12 @@ weft agent --server ${state.publicBase} \\
           onClose={() => setCreated(null)}
           wide
           footer={
-            <button className="btn btn--primary" onClick={() => setCreated(null)}>
+            <button className="primary" onClick={() => setCreated(null)}>
               {t('完成')}
             </button>
           }
         >
-          <p className="prose">
+          <p>
             {t('token 只显示这一次。{{hint}}', {
               hint:
                 created.kind === 'static'
@@ -374,120 +363,92 @@ weft agent --server ${state.publicBase} \\
                   : t('把它和 mihomo 的 secret 一起写进主机上的 systemd 或 launchd 里。'),
             })}
           </p>
-          <pre className="code">{agentCommand(state.publicBase, created.token ?? '', created.kind)}</pre>
-          <div className="row-actions">
-            <Copy
-              value={agentCommand(state.publicBase, created.token ?? '', created.kind)}
-              label={t('复制命令')}
-            />
-          </div>
+          <pre>
+            <code>{agentCommand(state.publicBase, created.token ?? '', created.kind)}</code>
+          </pre>
+          <Copy value={agentCommand(state.publicBase, created.token ?? '', created.kind)} label={t('复制命令')} />
         </Modal>
       )}
 
       {selected && (
         <Drawer
           title={selected.name}
-          wide
           onClose={() => {
             setSelectedID(null)
             setFreshToken(null)
             closeNodeEditor()
           }}
         >
-          <dl className="meta-list">
-            <div>
-              <dt>{t('状态')}</dt>
-              <dd>
-                <StatusPill status={selected.status} />
-              </dd>
-            </div>
-            <div>
-              <dt>{t('类型')}</dt>
-              <dd>{KIND_COPY[selected.kind]?.label ?? selected.kind}</dd>
-            </div>
-            <div>
-              <dt>{t('节点')}</dt>
-              <dd>
-                {t('{{alive}} 可用 / {{total}} 总计', { alive: selected.aliveCount, total: selected.nodeCount })}
-              </dd>
-            </div>
+          <dl className="kv">
+            <dt>{t('状态')}</dt>
+            <dd>
+              <StatusPill status={selected.status} />
+            </dd>
+            <dt>{t('类型')}</dt>
+            <dd>{KIND_COPY[selected.kind]?.label ?? selected.kind}</dd>
+            <dt>{t('节点')}</dt>
+            <dd>{t('{{alive}} 可用 / {{total}} 总计', { alive: selected.aliveCount, total: selected.nodeCount })}</dd>
             {selected.kind === 'agent' && (
               <>
-                <div>
-                  <dt>{t('最后上报')}</dt>
-                  <dd>{selected.lastSeen ? ago(selected.lastSeen) : t('从未')}</dd>
-                </div>
-                <div>
-                  <dt>mihomo</dt>
-                  <dd className="mono">{selected.mihomoVersion || '—'}</dd>
-                </div>
-                <div>
-                  <dt>controller</dt>
-                  <dd className="mono">{selected.controller || '—'}</dd>
-                </div>
+                <dt>{t('最后上报')}</dt>
+                <dd>{selected.lastSeen ? ago(selected.lastSeen) : t('从未')}</dd>
+                <dt>mihomo</dt>
+                <dd className="mono">{selected.mihomoVersion || '—'}</dd>
+                <dt>controller</dt>
+                <dd className="mono">{selected.controller || '—'}</dd>
               </>
             )}
             {selected.kind === 'sub' && (
               <>
-                <div>
-                  <dt>{t('订阅地址')}</dt>
-                  <dd className="mono cell-sub">{selected.subUrl || '—'}</dd>
-                </div>
-                <div>
-                  <dt>{t('最后拉取')}</dt>
-                  <dd>{selected.subCheckedAt ? ago(selected.subCheckedAt) : t('从未')}</dd>
-                </div>
+                <dt>{t('订阅地址')}</dt>
+                <dd className="mono small">{selected.subUrl || '—'}</dd>
+                <dt>{t('最后拉取')}</dt>
+                <dd>{selected.subCheckedAt ? ago(selected.subCheckedAt) : t('从未')}</dd>
               </>
             )}
           </dl>
 
           {selected.kind === 'sub' ? (
             <>
-              {selected.subError && (
-                <p className="prose">
-                  {t('上次拉取失败：{{error}}', { error: selected.subError })}
-                </p>
-              )}
-              <div className="row-actions">
+              {selected.subError && <p className="error">{t('上次拉取失败：{{error}}', { error: selected.subError })}</p>}
+              <div className="actions">
                 <button
-                  className="btn btn--secondary btn--sm"
+                  className="quiet small"
                   disabled={busy}
                   onClick={() => void refreshSource(selected)}
                 >
-                  <Icon name="refresh" />
                   {t('现在重新拉取')}
                 </button>
-                <button className="btn btn--danger btn--sm" onClick={() => void remove(selected)}>
-                  <Icon name="trash" />
+                <button className="danger small" onClick={() => void remove(selected)}>
                   {t('删除订阅源')}
                 </button>
               </div>
             </>
           ) : (
             <>
-              <h3 className="section-title">{t('接入命令')}</h3>
+              <h3>{t('接入命令')}</h3>
               {freshToken ? (
-                <pre className="code">{agentCommand(state.publicBase, freshToken, selected.kind)}</pre>
+                <pre>
+                  <code>{agentCommand(state.publicBase, freshToken, selected.kind)}</code>
+                </pre>
               ) : (
                 <>
-                  <p className="prose muted">
+                  <p className="small muted">
                     {t('token 只在生成时显示。下面这条命令里的 token 要换成轮换后拿到的那一个。')}
                   </p>
-                  <pre className="code">
-                    {agentCommand(state.publicBase, '<host token>', selected.kind)}
+                  <pre>
+                    <code>{agentCommand(state.publicBase, '<host token>', selected.kind)}</code>
                   </pre>
                 </>
               )}
-              <div className="row-actions">
+              <div className="actions">
                 {freshToken && (
                   <Copy value={agentCommand(state.publicBase, freshToken, selected.kind)} label={t('复制命令')} />
                 )}
-                <button className="btn btn--quiet btn--sm" onClick={() => void rotate(selected)}>
-                  <Icon name="key" />
+                <button className="quiet small" onClick={() => void rotate(selected)}>
                   {t('轮换 token')}
                 </button>
-                <button className="btn btn--danger btn--sm" onClick={() => void remove(selected)}>
-                  <Icon name="trash" />
+                <button className="danger small" onClick={() => void remove(selected)}>
                   {t('删除机器')}
                 </button>
               </div>
@@ -495,20 +456,18 @@ weft agent --server ${state.publicBase} \\
           )}
 
           <div className="section-head">
-            <h3 className="section-title">{t('节点（{{n}}）', { n: selectedNodes.length })}</h3>
-            <div className="row-actions row-actions--tight">
-              <button className="btn btn--quiet btn--sm" onClick={() => setNodeMode('import')}>
-                <Icon name="link" />
+            <h3>{t('节点（{{n}}）', { n: selectedNodes.length })}</h3>
+            <div className="actions">
+              <button className="quiet small" onClick={() => setNodeMode('import')}>
                 {t('粘贴导入')}
               </button>
               <button
-                className="btn btn--secondary btn--sm"
+                className="primary small"
                 onClick={() => {
                   setEditing(null)
                   setNodeMode('form')
                 }}
               >
-                <Icon name="plus" />
                 {t('手工添加')}
               </button>
             </div>
@@ -556,17 +515,13 @@ weft agent --server ${state.publicBase} \\
 
       {selected && nodeMode === 'import' && (
         <Modal title={t('粘贴导入 · {{name}}', { name: selected.name })} wide onClose={closeNodeEditor}>
-          <p className="prose">
+          <p>
             {t('一行一条，支持')} <span className="mono">hy2://</span>{' '}
             <span className="mono">vless://</span> <span className="mono">trojan://</span>{' '}
             <span className="mono">ss://</span> <span className="mono">vmess://</span>。
             {t('重复导入同一条只会更新，不会新增。')}
           </p>
-          <LinkImport
-            hostId={selected.id}
-            onDone={refresh}
-            onCancel={closeNodeEditor}
-          />
+          <LinkImport hostId={selected.id} onDone={refresh} onCancel={closeNodeEditor} />
         </Modal>
       )}
     </>

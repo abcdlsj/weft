@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, setCSRF, type FleetState, type Me } from './api'
-import { Mark, Icon } from './icons'
+import { Mark } from './icons'
 import { Toaster, notify } from './ui'
 import { Login } from './pages/Login'
 import { Overview } from './pages/Overview'
@@ -23,12 +23,12 @@ export interface PageProps {
 type Theme = 'light' | 'dark' | 'auto'
 
 const nav = [
-  { path: '/', label: '概览', icon: 'overview' },
-  { path: '/hosts', label: '机器', icon: 'hosts' },
-  { path: '/bundles', label: '编排', icon: 'layers' },
-  { path: '/subscriptions', label: '订阅', icon: 'link' },
-  { path: '/rules', label: '规则', icon: 'rules' },
-  { path: '/settings', label: '设置', icon: 'gear' },
+  { path: '/', label: '概览' },
+  { path: '/hosts', label: '机器' },
+  { path: '/bundles', label: '编排' },
+  { path: '/subscriptions', label: '订阅' },
+  { path: '/rules', label: '规则' },
+  { path: '/settings', label: '设置' },
 ]
 
 function usePath() {
@@ -118,7 +118,7 @@ export default function App() {
   if (!me) {
     return (
       <div className="boot">
-        <Mark size={26} />
+        <Mark size={22} />
       </div>
     )
   }
@@ -145,10 +145,10 @@ export default function App() {
   if (!state) {
     return (
       <div className="boot">
-        <Mark size={26} />
+        <Mark size={22} />
         <p>{error ?? t('正在读取集群状态')}</p>
         {error && (
-          <button className="btn btn--quiet" onClick={() => void refresh()}>
+          <button className="quiet" onClick={() => void refresh()}>
             {t('重试')}
           </button>
         )}
@@ -161,18 +161,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <header className="top">
         <a className="brand" href="/" onClick={(e) => (e.preventDefault(), navigate('/'))}>
           <Mark />
-          <span className="brand__text">
-            <strong>weft</strong>
-            <span className="brand__scope">
-              {state.demo ? t('演示实例') : t('{{n}} 台在线', { n: online })}
-            </span>
-          </span>
+          <span>weft</span>
         </a>
 
-        <nav className="nav">
+        <nav className="main-nav">
           {nav.map((item) => {
             const active =
               item.path === '/' ? path === '/' : path === item.path || path.startsWith(item.path + '/')
@@ -180,71 +175,49 @@ export default function App() {
               <a
                 key={item.path}
                 href={item.path}
-                className="nav-item"
                 aria-current={active ? 'page' : undefined}
                 onClick={(e) => {
                   e.preventDefault()
                   navigate(item.path)
                 }}
               >
-                <Icon name={item.icon} />
                 {t(item.label)}
                 {item.path === '/hosts' && state.stats.hostsOnline < state.stats.hostsTotal && (
-                  <span className="nav-count">{state.stats.hostsTotal - state.stats.hostsOnline}</span>
+                  <span className="muted"> {state.stats.hostsTotal - state.stats.hostsOnline}</span>
                 )}
               </a>
             )
           })}
         </nav>
 
-        <div className="sidebar__foot">
-          <div className="sidebar__status">
-            <span className="dot" data-status={state.stats.hostsOnline > 0 ? 'online' : 'offline'} />
-            {t('最近上报')} {state.hosts.length ? agoShort(Math.max(...state.hosts.map((h) => h.lastSeen))) : '—'}
-          </div>
+        <span className="top-aside">
+          <span>
+            {state.demo ? t('演示实例') : t('{{n}} 台在线', { n: online })}
+            {' · '}
+            {t('最近上报')}{' '}
+            {state.hosts.length ? agoShort(Math.max(...state.hosts.map((h) => h.lastSeen))) : '—'}
+          </span>
           <button
-            className="btn btn--quiet btn--sm"
+            className="quiet small"
             onClick={() => {
               setCSRF('')
               api.logout().catch(() => {}).finally(() => window.location.reload())
             }}
           >
-            <Icon name="power" />
             {t('结束会话')}
           </button>
-        </div>
-      </aside>
+        </span>
+      </header>
 
-      <main className="canvas">
-        <Suspense fallback={<div className="boot"><Mark size={26} /></div>}>{page}</Suspense>
+      <main>
+        <Suspense fallback={<div className="boot"><Mark size={22} /></div>}>{page}</Suspense>
       </main>
 
-      <nav className="tabbar">
-        {nav.map((item) => {
-          const active =
-            item.path === '/' ? path === '/' : path === item.path || path.startsWith(item.path + '/')
-          return (
-            <a
-              key={item.path}
-              href={item.path}
-              className="tabbar__item"
-              aria-current={active ? 'page' : undefined}
-              onClick={(e) => {
-                e.preventDefault()
-                navigate(item.path)
-              }}
-            >
-              <Icon name={item.icon} />
-              <span>{t(item.label)}</span>
-            </a>
-          )
-        })}
-      </nav>
       {updateReady && (
-        <div className="update-banner" role="status">
+        <div className="update" role="status">
           <span>{t('新版本已就绪')}</span>
           <button
-            className="btn btn--primary btn--sm"
+            className="primary small"
             onClick={() => window.dispatchEvent(new CustomEvent('weft:apply-update'))}
           >
             {t('刷新面板')}
