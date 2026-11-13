@@ -60,7 +60,7 @@ Open the panel, add a host, and run the printed agent command. The token is show
 
 ## Status
 
-v0.7.2 · Go + SQLite + React/TypeScript + water.css. Self-hosted and in daily use on a small fleet; the API may still change.
+v0.7.1 · Go + SQLite + React/TypeScript + water.css. Self-hosted and in daily use on a small fleet; the API may still change.
 
 ## License
 
