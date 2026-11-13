@@ -71,8 +71,8 @@ func SeedDemo(st *Store) (*Bundle, error) {
 	}
 
 	// A bare hysteria2 / xray box: no mihomo to read, so its nodes are entered
-	// by hand. This is the case weft exists for.
-	static, err := st.CreateHost("h2nexus", HostStatic)
+	// by hand. This is the case weft exists for. The fleet is synthetic.
+	static, err := st.CreateHost("berlin-05", HostStatic)
 	if err != nil {
 		return nil, err
 	}

@@ -321,7 +321,7 @@ weft agent --server ${state.publicBase} \\
             <input
               autoFocus
               value={name}
-              placeholder={kind === 'sub' ? '宝可梦' : 'h2nexus'}
+              placeholder={kind === 'sub' ? 'my-airport' : 'hk-01'}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void create()}
             />
