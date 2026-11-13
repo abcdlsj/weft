@@ -1,5 +1,5 @@
 // weft service worker: the shell works offline, the data never comes from cache.
-const CACHE = 'weft-v3'
+const CACHE = 'weft-v4'
 const SHELL = [
   '/',
   '/manifest.webmanifest',

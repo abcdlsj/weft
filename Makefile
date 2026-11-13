@@ -3,7 +3,7 @@ BINARY := weft
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/abcdlsj/weft/internal/weft.AgentVersion=$(VERSION)
 
-.PHONY: build panel test run demo fmt clean
+.PHONY: build panel icons test run demo fmt clean
 
 build: panel
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/weft
@@ -11,6 +11,10 @@ build: panel
 panel:
 	npm --prefix web ci
 	npm --prefix web run build
+
+# redraw web/public/icons from the same geometry the panel's mark uses
+icons:
+	go run ./tools/icons
 
 test:
 	go test ./...

@@ -151,12 +151,15 @@ export function Icon({
   )
 }
 
-/** The mark: three warp threads crossed by two weft threads. */
+/** The mark: three warp threads crossed by two wefts. The geometry is the same
+    24 unit grid as web/public/icons/mark.svg; run `make icons` to redraw the PNGs. */
 export function Mark({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true" className="mark">
-      <path d="M5.6 3.2v13.6M10 3.2v13.6M14.4 3.2v13.6" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
-      <path d="M3 7.4h14M3 12.6h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className="mark">
+      <g fill="none" stroke="currentColor" strokeLinecap="round">
+        <path d="M6.4 4.8V19.2M12 4.8V19.2M17.6 4.8V19.2" strokeWidth="1.4" opacity="0.5" />
+        <path d="M4.8 9.2H19.2M4.8 14.8H19.2" strokeWidth="2" />
+      </g>
     </svg>
   )
 }
