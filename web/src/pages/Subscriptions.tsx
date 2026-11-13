@@ -92,7 +92,7 @@ export function Subscriptions({ state, refresh }: PageProps) {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('订阅')}</h1>
+          <h1>{t('{{n}} 条订阅', { n: state.subscriptions.length })}</h1>
           <p className="sub">{t('一条链接对应一条编排。')}</p>
         </div>
         <div className="actions">

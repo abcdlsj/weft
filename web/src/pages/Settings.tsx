@@ -81,7 +81,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('设置')}</h1>
+          <h1>{t('外观与口令')}</h1>
           <p className="sub">{t('面板外观、口令与新建编排的默认模板。')}</p>
         </div>
       </div>

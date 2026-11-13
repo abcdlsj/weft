@@ -27,7 +27,7 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('编排')}</h1>
+          <h1>{t('{{n}} 条编排', { n: state.bundles.length })}</h1>
           <p className="sub">{t('从所有机器里挑节点，决定怎么分组，输出成一条订阅。')}</p>
         </div>
         <div className="actions">

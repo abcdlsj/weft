@@ -135,7 +135,7 @@ export function Rules({ state, refresh, theme }: PageProps) {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('规则')}</h1>
+          <h1>{t('{{n}} 套规则集', { n: state.ruleSets.length })}</h1>
           <p className="sub">{t('一套可复用的分流方案：rules、rule-providers 与额外代理组。')}</p>
         </div>
         <div className="actions">

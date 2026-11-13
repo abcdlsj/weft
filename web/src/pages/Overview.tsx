@@ -26,9 +26,9 @@ export function Overview({ state, refresh, navigate }: PageProps) {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('概览')}</h1>
+          <h1>{t('{{online}} 台在线', { online: stats.hostsOnline })}</h1>
           <p className="sub">
-            {t('{{online}} 台在线 · {{alive}} 个节点可用', { online: stats.hostsOnline, alive: stats.nodesAlive })}
+            {t('{{alive}} 个节点可用 · 共 {{hosts}} 台机器', { alive: stats.nodesAlive, hosts: state.hosts.length })}
             {state.demo && <span className="badge"> {t('演示数据')}</span>}
           </p>
         </div>

@@ -137,7 +137,7 @@ export function Hosts({ state, refresh }: PageProps) {
     <>
       <div className="page-head">
         <div>
-          <h1>{t('机器')}</h1>
+          <h1>{t('{{n}} 台机器', { n: state.hosts.length })}</h1>
           <p className="sub">
             {t('跑 mihomo 的机器自动上报；只跑 hy2 / v2ray 的机器由 agent 读配置反推；机场订阅由 Weft 自己拉。')}
           </p>
