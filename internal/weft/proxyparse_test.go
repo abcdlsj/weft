@@ -118,6 +118,72 @@ func TestParseVMessLink(t *testing.T) {
 	}
 }
 
+// Shadowrocket and Quantumult X exports put the TLS switch and the certificate
+// policy in query params instead of the JSON body.
+func TestParseShadowrocketVMessLink(t *testing.T) {
+	link := "vmess://YXV0bzo1YzA0MGYxZC00NWRiLTQzYmQtOGQ0Ni1lNDk1MGU0MzM3MzVANDUuMTM2LjE1NS4yMTI6MTIzNA==" +
+		"?remarks=%F0%9F%92%8EVIP-TR-Turkey101&tls=1&peer=supervpn.super.com" +
+		"&allowInsecure=1&udp=1&alterId=0"
+	p, err := ParseProxyLink(link)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	n, err := NodeFromProxy(p)
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	if n.Type != "vmess" || n.Server != "45.136.155.212" || n.Port != 1234 {
+		t.Fatalf("index columns wrong: %+v", n)
+	}
+	var raw map[string]any
+	json.Unmarshal(n.Raw, &raw)
+	want := map[string]any{
+		"uuid":             "5c040f1d-45db-43bd-8d46-e4950e433735",
+		"cipher":           "auto",
+		"alterId":          float64(0),
+		"tls":              true,
+		"servername":       "supervpn.super.com",
+		"skip-cert-verify": true,
+		"udp":              true,
+		"network":          "tcp",
+		"name":             "\U0001F48EVIP-TR-Turkey101",
+	}
+	for k, expected := range want {
+		if got := raw[k]; got != expected {
+			t.Fatalf("%s = %v, want %v", k, got, expected)
+		}
+	}
+}
+
+// A bare uuid, no cipher prefix, plus a fragment name.
+func TestParseShadowrocketVMessBareUUID(t *testing.T) {
+	body := base64.RawURLEncoding.EncodeToString(
+		[]byte("11111111-2222-3333-4444-555555555555@198.51.100.9:80"))
+	p, err := ParseProxyLink("vmess://" + body + "?net=ws&path=/ray&host=cdn.example.com#LAX")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	n, err := NodeFromProxy(p)
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	var raw map[string]any
+	json.Unmarshal(n.Raw, &raw)
+	ws, ok := raw["ws-opts"].(map[string]any)
+	if !ok || ws["path"] != "/ray" {
+		t.Fatalf("ws-opts: %v", raw)
+	}
+	if headers, ok := ws["headers"].(map[string]any); !ok || headers["Host"] != "cdn.example.com" {
+		t.Fatalf("ws headers: %v", ws)
+	}
+	if raw["uuid"] != "11111111-2222-3333-4444-555555555555" || n.Name != "LAX" {
+		t.Fatalf("raw: %v", raw)
+	}
+	if _, has := raw["tls"]; has {
+		t.Fatalf("tls should stay off: %v", raw)
+	}
+}
+
 func TestParseRejectsJunk(t *testing.T) {
 	for _, bad := range []string{"", "ftp://x", "hy2://", "vless://uuid@host"} {
 		if _, err := ParseProxyLink(bad); err == nil {

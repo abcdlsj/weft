@@ -230,11 +230,29 @@ func parseSS(link string) (map[string]any, error) {
 	}, nil
 }
 
+// vmess ships in two dialects. v2rayN encodes a JSON blob; Shadowrocket and
+// Quantumult X encode "cipher:uuid@host:port" and keep tls, sni and the
+// certificate switch in query params. Both are read into the same proxy map.
 func parseVMess(link string) (map[string]any, error) {
-	decoded, err := decodeBase64(strings.TrimPrefix(link, "vmess://"))
+	payload := strings.TrimPrefix(link, "vmess://")
+	query, fragment := "", ""
+	if i := strings.IndexByte(payload, '#'); i >= 0 {
+		payload, fragment = payload[:i], payload[i+1:]
+	}
+	if i := strings.IndexByte(payload, '?'); i >= 0 {
+		payload, query = payload[:i], payload[i+1:]
+	}
+	decoded, err := decodeBase64(payload)
 	if err != nil {
 		return nil, fmt.Errorf("vmess 链接无法解析：%w", err)
 	}
+	if strings.HasPrefix(strings.TrimSpace(decoded), "{") {
+		return parseVMessJSON(decoded)
+	}
+	return parseVMessURI(decoded, query, fragment)
+}
+
+func parseVMessJSON(decoded string) (map[string]any, error) {
 	var vm struct {
 		PS   string `json:"ps"`
 		Add  string `json:"add"`
@@ -290,6 +308,76 @@ func parseVMess(link string) (map[string]any, error) {
 	name := vm.PS
 	if name == "" {
 		name = fmt.Sprintf("vmess %s:%d", vm.Add, port)
+	}
+	m["name"] = name
+	return m, nil
+}
+
+func parseVMessURI(body, query, fragment string) (map[string]any, error) {
+	u, err := url.Parse("//" + strings.TrimSpace(body))
+	if err != nil || u.Hostname() == "" {
+		return nil, fmt.Errorf("vmess 链接缺少 host:port")
+	}
+	port, err := portOf(u)
+	if err != nil {
+		return nil, err
+	}
+	q, _ := url.ParseQuery(query)
+	m := map[string]any{
+		"type":    "vmess",
+		"server":  u.Hostname(),
+		"port":    port,
+		"uuid":    u.User.Username(),
+		"alterId": intOf(firstOf(q, "alterId", "aid")),
+		"cipher":  "auto",
+	}
+	// "auto:<uuid>@host" puts the cipher in the user part; a bare uuid does not.
+	if pass, ok := u.User.Password(); ok && pass != "" {
+		m["cipher"], m["uuid"] = u.User.Username(), pass
+	}
+	if scy := firstOf(q, "scy", "encryption"); scy != "" {
+		m["cipher"] = scy
+	}
+	network := firstOf(q, "network", "net")
+	if network == "" {
+		network = "tcp"
+	}
+	m["network"] = network
+	if truthy(q.Get("tls")) {
+		m["tls"] = true
+	}
+	setString(m, "servername", firstOf(q, "peer", "sni", "servername"))
+	if truthy(firstOf(q, "allowInsecure", "insecure", "skip-cert-verify")) {
+		m["skip-cert-verify"] = true
+	}
+	if udp := q.Get("udp"); udp != "" {
+		m["udp"] = truthy(udp)
+	}
+	switch network {
+	case "ws", "httpupgrade":
+		ws := map[string]any{}
+		if path := q.Get("path"); path != "" {
+			ws["path"] = path
+		}
+		if host := firstOf(q, "host", "obfsParam"); host != "" {
+			ws["headers"] = map[string]any{"Host": host}
+		}
+		if len(ws) > 0 {
+			m["ws-opts"] = ws
+		}
+	case "grpc":
+		if svc := firstOf(q, "serviceName", "service"); svc != "" {
+			m["grpc-opts"] = map[string]any{"grpc-service-name": svc}
+		}
+	}
+	name := firstOf(q, "remarks", "remark")
+	if name == "" && fragment != "" {
+		if unescaped, err := url.QueryUnescape(fragment); err == nil {
+			name = unescaped
+		}
+	}
+	if name = strings.TrimSpace(name); name == "" {
+		name = fmt.Sprintf("vmess %s:%d", u.Hostname(), port)
 	}
 	m["name"] = name
 	return m, nil
