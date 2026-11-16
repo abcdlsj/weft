@@ -249,6 +249,13 @@ const en: Record<string, string> = {
   '服务端私钥推导出的 publicKey': 'The publicKey derived from the server private key',
   '传输': 'Transport',
   'TLS 明文伪装，兼容性最广': 'TLS disguise with the widest compatibility',
+  'TLS + UUID 的老方案，兼容性最好，握手比 VLESS 重':
+    'Classic TLS + UUID: best compatibility, heavier handshake than VLESS',
+  'AEAD 节点填 0': 'Use 0 for AEAD nodes',
+  '服务端是 TLS 就要开': 'Turn on when the server speaks TLS',
+  'UDP 转发': 'UDP relay',
+  '关掉后 UDP 走直连或失败': 'When off, UDP falls back to direct or fails',
+  'WS 路径': 'WS path',
   '最轻量，速度取决于线路': 'Lightest option; speed depends on the path',
   '加密方式': 'Cipher',
   '还需要填写：{{fields}}': 'Still missing: {{fields}}',

@@ -6,7 +6,7 @@ import { notify } from './ui'
 /* Protocol definitions drive the form. Adding a protocol means adding one entry
    here: the field list is the whole contract between panel and server. */
 
-export type Protocol = 'hysteria2' | 'vless' | 'trojan' | 'ss'
+export type Protocol = 'hysteria2' | 'vless' | 'vmess' | 'trojan' | 'ss'
 
 interface FieldSpec {
   key: string
@@ -70,6 +70,30 @@ export const PROTOCOLS: Record<Protocol, { label: string; blurb: string; fields:
       { key: 'reality-opts.public-key', label: 'Reality 公钥', hint: '服务端私钥推导出的 publicKey' },
       { key: 'reality-opts.short-id', label: 'Short ID', placeholder: 'f8a64b66' },
       { key: 'network', label: '传输', placeholder: 'tcp', options: ['tcp', 'ws', 'grpc'] },
+    ],
+  },
+  vmess: {
+    label: 'VMess',
+    blurb: 'TLS + UUID 的老方案，兼容性最好，握手比 VLESS 重',
+    fields: [
+      { key: 'name', label: '节点名', placeholder: 'Istanbul-VMess', required: true },
+      { key: 'server', label: '服务器', placeholder: '203.0.113.24', required: true },
+      { key: 'port', label: '端口', placeholder: '1234', kind: 'number', required: true },
+      { key: 'uuid', label: 'UUID', required: true },
+      { key: 'alterId', label: 'Alter ID', kind: 'number', placeholder: '0', hint: 'AEAD 节点填 0' },
+      {
+        key: 'cipher',
+        label: '加密方式',
+        placeholder: 'auto',
+        options: ['auto', 'aes-128-gcm', 'chacha20-poly1305', 'none', 'zero'],
+      },
+      { key: 'network', label: '传输', placeholder: 'tcp', options: ['tcp', 'ws', 'grpc'] },
+      { key: 'servername', label: 'SNI', placeholder: 'www.bing.com' },
+      { key: 'tls', label: 'TLS', kind: 'switch', hint: '服务端是 TLS 就要开' },
+      { key: 'skip-cert-verify', label: '跳过证书校验', kind: 'switch', hint: '自签证书时打开' },
+      { key: 'udp', label: 'UDP 转发', kind: 'switch', hint: '关掉后 UDP 走直连或失败' },
+      { key: 'ws-opts.path', label: 'WS 路径', placeholder: '/ray', group: 'WebSocket' },
+      { key: 'ws-opts.headers.Host', label: 'WS Host', placeholder: 'cdn.example.com', group: 'WebSocket' },
     ],
   },
   trojan: {
