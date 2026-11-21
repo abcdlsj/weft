@@ -1,21 +1,18 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
-import { notify } from '../ui'
+import { Icon, type IconName } from '../icons'
+import { Copy, notify } from '../ui'
 import { setLocale, type Locale } from '../i18n'
-import type { PageProps } from '../App'
+import type { PageProps, Theme } from '../App'
 
-type Props = PageProps & {
-  theme: 'light' | 'dark' | 'auto'
-  setTheme: (t: 'light' | 'dark' | 'auto') => void
-}
-
-export function Settings({ state, refresh, theme, setTheme }: Props) {
+export function Settings({ state, refresh, theme, setTheme }: PageProps) {
   const { t, i18n } = useTranslation()
   const locale: Locale = i18n.language === 'en' ? 'en' : 'zh'
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirmNext, setConfirmNext] = useState('')
+  const [showPass, setShowPass] = useState(false)
   const [template, setTemplate] = useState(state.defaultTemplate || state.builtinTemplate)
   const [busy, setBusy] = useState(false)
   const [restoreBusy, setRestoreBusy] = useState(false)
@@ -23,10 +20,11 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
 
   const usingBuiltin = !state.defaultTemplate
+  const mismatch = confirmNext.length > 0 && next !== confirmNext
 
   async function changePassword() {
     if (next !== confirmNext) {
-      notify(t('两次输入的新口令不一致'))
+      notify(t('两次输入的新口令不一致'), 'bad')
       return
     }
     setBusy(true)
@@ -35,9 +33,9 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
       setCurrent('')
       setNext('')
       setConfirmNext('')
-      notify(t('口令已更新'))
+      notify(t('口令已更新'), 'ok')
     } catch (e) {
-      notify((e as Error).message)
+      notify((e as Error).message, 'bad')
     } finally {
       setBusy(false)
     }
@@ -56,9 +54,10 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
           rules: res.ruleSetsCreated + res.ruleSetsUpdated,
           bundles: res.bundlesCreated + res.bundlesUpdated,
         }),
+        'ok',
       )
     } catch (e) {
-      notify((e as Error).message)
+      notify((e as Error).message, 'bad')
     } finally {
       setRestoreBusy(false)
     }
@@ -69,13 +68,19 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
     try {
       await api.saveSettings({ defaultTemplate: template })
       await refresh()
-      notify(t('默认模板已保存'))
+      notify(t('默认模板已保存'), 'ok')
     } catch (e) {
-      notify((e as Error).message)
+      notify((e as Error).message, 'bad')
     } finally {
       setBusy(false)
     }
   }
+
+  const themeOptions: { value: Theme; label: string; icon: IconName }[] = [
+    { value: 'auto', label: '跟随系统', icon: 'monitor' },
+    { value: 'light', label: '浅色', icon: 'sun' },
+    { value: 'dark', label: '深色', icon: 'moon' },
+  ]
 
   return (
     <>
@@ -86,29 +91,32 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
         </div>
       </div>
 
-      <section>
-        <div className="section-head">
-          <h2>{t('外观与实例')}</h2>
-          <span className="small muted">{state.demo ? t('演示数据（内存库）') : t('自托管')}</span>
-        </div>
-        <div className="grid two">
-          <div>
-            <p className="small muted">{t('主题')}</p>
+      <div className="grid two">
+        <section className="panel">
+          <div className="section-head">
+            <h2>{t('外观与实例')}</h2>
+            <span className="badge">{state.demo ? t('演示数据（内存库）') : t('自托管')}</span>
+          </div>
+
+          <div className="setting-group">
+            <span className="setting-label">{t('主题')}</span>
             <div className="tabs">
-              {(
-                [
-                  ['auto', '跟随系统'],
-                  ['light', '浅色'],
-                  ['dark', '深色'],
-                ] as const
-              ).map(([value, label]) => (
-                <button key={value} aria-pressed={theme === value} onClick={() => setTheme(value)}>
-                  {t(label)}
+              {themeOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  aria-pressed={theme === opt.value}
+                  onClick={() => setTheme(opt.value)}
+                >
+                  <Icon name={opt.icon} size={14} />
+                  <span>{t(opt.label)}</span>
                 </button>
               ))}
             </div>
             <p className="small muted">{t('可安装到主屏，深色模式跟随系统。')}</p>
-            <p className="small muted">{t('面板语言')}</p>
+          </div>
+
+          <div className="setting-group">
+            <span className="setting-label">{t('面板语言')}</span>
             <div className="tabs">
               {(
                 [
@@ -123,37 +131,56 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
             </div>
             <p className="small muted">{t('界面语言保存在这台设备上。')}</p>
           </div>
+        </section>
+
+        <section className="panel">
+          <div className="section-head">
+            <h2>Weft</h2>
+            <span className="small muted">{state.demo ? t('演示实例') : t('自托管')}</span>
+          </div>
           <ul className="facts">
             <li>
               <span>{t('访问地址')}</span>
-              <span className="mono">{state.publicBase}</span>
+              <span className="fact-copy">
+                <code className="mono truncate">{state.publicBase}</code>
+                <Copy value={state.publicBase} iconOnly />
+              </span>
             </li>
             <li>
               <span>{t('机器 / 节点')}</span>
-              <span>
+              <span className="num">
                 {t('{{hosts}} 台 / {{nodes}} 个', { hosts: state.stats.hostsTotal, nodes: state.stats.nodesTotal })}
               </span>
             </li>
             <li>
               <span>{t('订阅链接')}</span>
-              <span>
+              <span className="num">
                 {t('{{hits}} 次拉取 / {{n}} 条', { hits: state.stats.subHits, n: state.subscriptions.length })}
               </span>
             </li>
           </ul>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section>
+      <section className="panel">
         <div className="section-head">
           <h2>{t('面板口令')}</h2>
-          <span className="small muted">{t('保存在 weft.db，走 Argon2id')}</span>
+          <div className="actions">
+            <span className="small muted">{t('保存在 weft.db，走 Argon2id')}</span>
+            <button
+              type="button"
+              className="text small"
+              onClick={() => setShowPass((v) => !v)}
+            >
+              {showPass ? t('隐藏口令') : t('显示口令')}
+            </button>
+          </div>
         </div>
         <div className="form-grid three">
           <label className="field">
             <span>{t('当前口令')}</span>
             <input
-              type="password"
+              type={showPass ? 'text' : 'password'}
               autoComplete="current-password"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
@@ -162,7 +189,7 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
           <label className="field">
             <span>{t('新口令')}</span>
             <input
-              type="password"
+              type={showPass ? 'text' : 'password'}
               autoComplete="new-password"
               value={next}
               onChange={(e) => setNext(e.target.value)}
@@ -171,17 +198,18 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
           <label className="field">
             <span>{t('再次输入')}</span>
             <input
-              type="password"
+              type={showPass ? 'text' : 'password'}
               autoComplete="new-password"
               value={confirmNext}
               onChange={(e) => setConfirmNext(e.target.value)}
             />
+            {mismatch && <span className="hint is-bad">{t('两次输入的新口令不一致')}</span>}
           </label>
         </div>
         <div className="actions">
           <button
             className="primary"
-            disabled={busy || !current || next.length < 6}
+            disabled={busy || !current || next.length < 6 || mismatch}
             onClick={() => void changePassword()}
           >
             {t('更新口令')}
@@ -192,15 +220,18 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
               api.logout().catch(() => {}).finally(() => window.location.reload())
             }}
           >
-            {t('结束会话')}
+            <Icon name="logout" size={14} />
+            <span>{t('结束会话')}</span>
           </button>
         </div>
       </section>
 
-      <section>
+      <section className="panel">
         <div className="section-head">
           <h2>{t('默认配置模板')}</h2>
-          <span className="small muted">{usingBuiltin ? t('当前使用内置模板') : t('已自定义')}</span>
+          <span className={`badge${usingBuiltin ? '' : ' badge-accent'}`}>
+            {usingBuiltin ? t('当前使用内置模板') : t('已自定义')}
+          </span>
         </div>
         <p>
           {t('节点填入')} <code className="mono">PROXY</code> {t('与')} <code className="mono">AUTO</code>
@@ -225,10 +256,11 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
           >
             {t('恢复内置模板')}
           </button>
+          <Copy value={template} label={t('复制')} small={false} />
         </div>
       </section>
 
-      <section>
+      <section className="panel">
         <div className="section-head">
           <h2>{t('备份与恢复')}</h2>
           <span className="small muted">{t('不含机器 token 与订阅凭据')}</span>
@@ -236,10 +268,12 @@ export function Settings({ state, refresh, theme, setTheme }: Props) {
         <p>{t('导出默认模板、规则集和编排；恢复时同名规则集、同路径编排会原地更新，不生成重复项。')}</p>
         <div className="actions">
           <button className="primary" onClick={() => window.location.assign('/api/backup')}>
-            {t('导出备份')}
+            <Icon name="download" size={15} />
+            <span>{t('导出备份')}</span>
           </button>
           <button className="quiet" disabled={restoreBusy} onClick={() => fileInput.current?.click()}>
-            {restoreBusy ? t('恢复中…') : t('导入备份')}
+            <Icon name="upload" size={15} />
+            <span>{restoreBusy ? t('恢复中…') : t('导入备份')}</span>
           </button>
           <input
             ref={fileInput}

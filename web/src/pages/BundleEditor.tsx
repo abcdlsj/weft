@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, type Bundle } from '../api'
+import { Icon } from '../icons'
+import { delayTone } from '../nodes'
 import { Copy, notify } from '../ui'
 import type { PageProps } from '../App'
 
@@ -20,6 +22,22 @@ const behaviorOptions = [
   { value: 'load-balance', label: 'load-balance 负载均衡' },
 ] as const
 
+function TriCheckbox({
+  checked,
+  indeterminate,
+  onChange,
+}: {
+  checked: boolean
+  indeterminate: boolean
+  onChange: () => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
+  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} />
+}
+
 export function BundleEditor({ state, refresh, navigate, id }: Props) {
   const { t } = useTranslation()
   const existing = id ? state.bundles.find((b) => b.id === id) : undefined
@@ -33,6 +51,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
   const [picked, setPicked] = useState<Set<string>>(
     () => new Set((existing?.members ?? []).map((m) => `${m.hostId}|${m.key}`)),
   )
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState('')
   const [aliveOnly, setAliveOnly] = useState(false)
   const [preview, setPreview] = useState<{ body: string; nodes: number } | null>(null)
@@ -40,6 +59,32 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
   const [tab, setTab] = useState<'yaml' | 'links'>('yaml')
   const [busy, setBusy] = useState(false)
   const [savedID, setSavedID] = useState(existing?.id ?? '')
+  const [baseline, setBaseline] = useState(() =>
+    JSON.stringify({
+      name: existing?.name ?? '',
+      slug: existing?.slug ?? '',
+      groupBy: existing?.groupBy ?? 'host',
+      groupType: existing?.groupType ?? 'url-test',
+      template: existing?.template ?? state.defaultTemplate ?? '',
+      ruleSetID: existing?.ruleSetId ?? '',
+      members: (existing?.members ?? []).map((m) => `${m.hostId}|${m.key}`).sort(),
+    }),
+  )
+
+  const currentSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        name,
+        slug,
+        groupBy,
+        groupType,
+        template,
+        ruleSetID,
+        members: [...picked].sort(),
+      }),
+    [name, slug, groupBy, groupType, template, ruleSetID, picked],
+  )
+  const isDirty = currentSnapshot !== baseline
 
   const hostsByID = useMemo(() => new Map(state.hosts.map((h) => [h.id, h])), [state.hosts])
   const filtered = useMemo(() => {
@@ -94,7 +139,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
             setPreviewError((e as Error).message)
           }
         })
-    }, 350)
+    }, 320)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
@@ -122,9 +167,28 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
     })
   }
 
-  async function save() {
+  function toggleCollapse(hostID: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(hostID)) next.delete(hostID)
+      else next.add(hostID)
+      return next
+    })
+  }
+
+  function selectVisible(onlyAlive = false) {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      for (const n of filtered) {
+        if (!onlyAlive || n.alive) next.add(`${n.hostId}|${n.key}`)
+      }
+      return next
+    })
+  }
+
+  const save = useCallback(async () => {
     if (!name.trim()) {
-      notify(t('先给编排起个名字'))
+      notify(t('先给编排起个名字'), 'bad')
       return
     }
     setBusy(true)
@@ -144,21 +208,46 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
       const saved = savedID ? await api.updateBundle(savedID, body) : await api.createBundle(body)
       setSavedID(saved.id)
       setSlug(saved.slug)
+      setBaseline(
+        JSON.stringify({
+          name: body.name,
+          slug: saved.slug,
+          groupBy,
+          groupType,
+          template,
+          ruleSetID,
+          members: [...picked].sort(),
+        }),
+      )
       await refresh()
-      notify(t('已保存'))
+      notify(t('已保存'), 'ok')
       if (!id) navigate(`/bundles/${saved.id}`)
     } catch (e) {
-      notify((e as Error).message)
+      notify((e as Error).message, 'bad')
     } finally {
       setBusy(false)
     }
-  }
+  }, [name, slug, groupBy, groupType, template, ruleSetID, picked, savedID, refresh, id, navigate, t])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (!busy) void save()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [save, busy])
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>{existing ? existing.name : t('新建编排')}</h1>
+          <div className="title-inline">
+            <h1>{existing ? existing.name : t('新建编排')}</h1>
+            {isDirty && <span className="badge badge-warn">{t('有未保存的更改')}</span>}
+          </div>
           <p className="sub">
             {t('{{n}} 个节点', { n: selectedCount })}
             {savedID && <span className="mono"> · /{slug || existing?.slug}</span>}
@@ -168,13 +257,23 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
           <button className="quiet" onClick={() => navigate('/bundles')}>
             {t('返回')}
           </button>
+          {savedID && (
+            <button
+              className="quiet"
+              onClick={() => navigate(`/subscriptions?create=${encodeURIComponent(savedID)}`)}
+            >
+              <Icon name="link" size={14} />
+              <span>{t('创建订阅')}</span>
+            </button>
+          )}
           <button className="primary" onClick={() => void save()} disabled={busy}>
-            {t('保存')}
+            <Icon name="check" size={15} />
+            <span>{busy ? t('保存中…') : t('保存')}</span>
           </button>
         </div>
       </div>
 
-      <section>
+      <section className="panel">
         <div className="section-head">
           <h2>{t('基本设置')}</h2>
           <button className="text small" onClick={() => setShowTemplate((v) => !v)}>
@@ -243,80 +342,137 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
         )}
       </section>
 
-      <div className="grid split">
-        <section>
-          <div className="section-head">
-            <h2>{t('节点')}</h2>
-            <span className="small muted">{t('已选 {{n}}', { n: selectedCount })}</span>
+      <div className="grid split editor-split">
+        <section className="panel panel-flush">
+          <div className="panel-head">
+            <div className="title-inline">
+              <h2>{t('节点')}</h2>
+              <span className="badge num">
+                {t('已选 {{n}}', { n: selectedCount })} / {state.nodes.length}
+              </span>
+            </div>
+            <div className="picker-bulk">
+              <button type="button" className="text small" onClick={() => selectVisible(false)}>
+                {t('全选当前')}
+              </button>
+              <button type="button" className="text small" onClick={() => selectVisible(true)}>
+                {t('仅选可用')}
+              </button>
+              {selectedCount > 0 && (
+                <button type="button" className="text small muted" onClick={() => setPicked(new Set())}>
+                  {t('清空')}
+                </button>
+              )}
+            </div>
           </div>
+
           <div className="picker-tools">
-            <input
-              type="search"
-              value={query}
-              placeholder={t('搜索节点、机器或协议')}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+            <div className="search-box">
+              <Icon name="search" size={14} className="search-icon" />
+              <input
+                type="search"
+                value={query}
+                placeholder={t('搜索节点、机器或协议')}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
             <label className="check">
               <input type="checkbox" checked={aliveOnly} onChange={(e) => setAliveOnly(e.target.checked)} />
               {t('只看可用')}
             </label>
           </div>
+
           <div className="picker">
-            {grouped.length === 0 && <p className="small muted">{t('没有匹配的节点。')}</p>}
+            {grouped.length === 0 && <p className="small muted picker-empty">{t('没有匹配的节点。')}</p>}
             {grouped.map(([hostID, nodes]) => {
               const host = hostsByID.get(hostID)
               const keys = nodes.map((n) => n.key)
-              const all = keys.every((k) => picked.has(`${hostID}|${k}`))
+              const pickedInHost = keys.filter((k) => picked.has(`${hostID}|${k}`)).length
+              const all = pickedInHost === keys.length && keys.length > 0
+              const some = pickedInHost > 0 && !all
+              const isCollapsed = collapsed.has(hostID)
               return (
                 <div className="picker-group" key={hostID}>
-                  <label className="picker-head">
-                    <input type="checkbox" checked={all} onChange={() => toggleHost(hostID, keys)} />
-                    <span>{host?.name ?? hostID}</span>
-                    <span className="badge">{nodes.length}</span>
-                  </label>
-                  {nodes.map((n) => {
-                    const key = `${hostID}|${n.key}`
-                    return (
-                      <label className="picker-row" key={key}>
-                        <input type="checkbox" checked={picked.has(key)} onChange={() => toggle(key)} />
-                        <span className="node-name">{n.name}</span>
-                        <span className="type mono">{n.type}</span>
-                        <span className="delay">{n.alive ? `${n.delayMs} ms` : '—'}</span>
-                      </label>
-                    )
-                  })}
+                  <div className="picker-head">
+                    <label className="picker-head-check">
+                      <TriCheckbox
+                        checked={all}
+                        indeterminate={some}
+                        onChange={() => toggleHost(hostID, keys)}
+                      />
+                      <span className="picker-host-name">{host?.name ?? hostID}</span>
+                    </label>
+                    <span className="badge num">
+                      {pickedInHost}/{nodes.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon small picker-collapse"
+                      aria-label={isCollapsed ? t('展开') : t('收起')}
+                      onClick={() => toggleCollapse(hostID)}
+                    >
+                      <Icon
+                        name="chevronDown"
+                        size={14}
+                        className={isCollapsed ? 'rot-closed' : undefined}
+                      />
+                    </button>
+                  </div>
+                  {!isCollapsed &&
+                    nodes.map((n) => {
+                      const key = `${hostID}|${n.key}`
+                      const isPicked = picked.has(key)
+                      const tone = delayTone(n.alive, n.delayMs)
+                      return (
+                        <label className="picker-row" data-selected={isPicked} key={key}>
+                          <input type="checkbox" checked={isPicked} onChange={() => toggle(key)} />
+                          <span className="node-name" title={n.name}>
+                            {n.name}
+                          </span>
+                          <span className="proto-pill mono">{n.type}</span>
+                          <span
+                            className={`delay num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : tone === 'bad' ? ' is-bad' : ''}`}
+                          >
+                            {n.alive ? (n.delayMs ? `${n.delayMs} ms` : '—') : t('不可用')}
+                          </span>
+                        </label>
+                      )
+                    })}
                 </div>
               )
             })}
           </div>
         </section>
 
-        <section className="editor-preview">
-          <div className="section-head">
-            <h2>{t('预览')}</h2>
-            <div className="tabs">
-              <button aria-pressed={tab === 'yaml'} onClick={() => setTab('yaml')}>
-                YAML
-              </button>
-              <button aria-pressed={tab === 'links'} onClick={() => setTab('links')}>
-                {t('链接')}
-              </button>
+        <section className="panel panel-flush editor-preview">
+          <div className="panel-head">
+            <div className="title-inline">
+              <h2>{t('预览')}</h2>
+              {preview && <span className="badge num">{t('{{n}} 个节点', { n: preview.nodes })}</span>}
+            </div>
+            <div className="preview-controls">
+              <div className="tabs">
+                <button aria-pressed={tab === 'yaml'} onClick={() => setTab('yaml')}>
+                  YAML
+                </button>
+                <button aria-pressed={tab === 'links'} onClick={() => setTab('links')}>
+                  {t('链接')}
+                </button>
+              </div>
+              {preview && <Copy value={preview.body} />}
             </div>
           </div>
-          {previewError ? (
-            <p className="error">{previewError}</p>
-          ) : !preview ? (
-            <p className="small muted">{t('正在生成…')}</p>
-          ) : (
-            <>
-              <p className="small muted">
-                {t('{{n}} 个节点', { n: preview.nodes })} · <Copy value={preview.body} />
-              </p>
+          <div className="editor-preview-body">
+            {previewError ? (
+              <p className="error panel-pad">{previewError}</p>
+            ) : !preview ? (
+              <p className="small muted panel-pad">{t('正在生成…')}</p>
+            ) : (
               <pre>
                 <code>{preview.body}</code>
               </pre>
-            </>
-          )}
+            )}
+          </div>
         </section>
       </div>
     </>

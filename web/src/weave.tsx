@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
  *  It is the product's own shape — several threads, one cloth. */
 export function WeaveStrip({
   segments,
-  width = 110,
+  width = 124,
 }: {
   segments: { label: string; count: number }[]
   width?: number
@@ -15,7 +15,11 @@ export function WeaveStrip({
   return (
     <div className="weave" style={{ width }} role="img" aria-label={title} title={title}>
       {segments.map((s) => (
-        <span key={s.label} style={{ flexGrow: Math.max(s.count, 0.6) / total }} />
+        <span
+          key={s.label}
+          style={{ flexGrow: Math.max(s.count, 0.6) / total }}
+          title={`${s.label} · ${s.count}`}
+        />
       ))}
     </div>
   )
@@ -26,19 +30,23 @@ export function NodeThreads({ nodes }: { nodes: { key: string; name: string; ali
   const { t } = useTranslation()
   if (nodes.length === 0) return <span className="muted">—</span>
   const alive = nodes.filter((n) => n.alive).length
+  const visible = nodes.slice(0, 24)
+  const overflow = nodes.length - visible.length
   return (
     <span
       className="threads"
       role="img"
       aria-label={t('{{alive}} / {{total}} 个节点可用', { alive, total: nodes.length })}
     >
-      {nodes.map((n) => (
+      {visible.map((n) => (
         <span
           key={n.key}
           data-down={!n.alive}
-          title={`${n.name} · ${n.alive ? `${n.delayMs} ms` : t('不可用')}`}
+          data-fast={n.alive && n.delayMs > 0 && n.delayMs < 100}
+          title={`${n.name} · ${n.alive ? (n.delayMs ? `${n.delayMs} ms` : t('在线')) : t('不可用')}`}
         />
       ))}
+      {overflow > 0 && <em className="threads-more num">+{overflow}</em>}
     </span>
   )
 }

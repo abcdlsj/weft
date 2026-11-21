@@ -66,6 +66,7 @@ const shapes: Record<string, ReactElement> = {
   ),
   close: <path d="M5.2 5.2l9.6 9.6M14.8 5.2l-9.6 9.6" />,
   chevron: <path d="M8.2 5.2 13 10l-4.8 4.8" />,
+  chevronDown: <path d="M5.2 8.2 10 13l4.8-4.8" />,
   trash: (
     <>
       <path d="M3.6 5.9h12.8" />
@@ -127,20 +128,80 @@ const shapes: Record<string, ReactElement> = {
     </>
   ),
   arrowUpRight: <path d="M6.4 13.6 13.6 6.4M7.6 6.4h6v6" />,
+  sun: (
+    <>
+      <circle cx="10" cy="10" r="3.4" />
+      <path d="M10 2.8v1.6M10 15.6v1.6M2.8 10h1.6M15.6 10h1.6M4.9 4.9l1.1 1.1M14 14l1.1 1.1M15.1 4.9 14 6M6 14l-1.1 1.1" />
+    </>
+  ),
+  moon: <path d="M15.9 12.2A6.3 6.3 0 0 1 7.8 4.1a6.4 6.4 0 1 0 8.1 8.1z" />,
+  monitor: (
+    <>
+      <rect x="2.8" y="3.8" width="14.4" height="9.6" rx="1.8" />
+      <path d="M7.2 16.4h5.6M10 13.4v3" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2.6 10s2.7-4.6 7.4-4.6S17.4 10 17.4 10s-2.7 4.6-7.4 4.6S2.6 10 2.6 10z" />
+      <circle cx="10" cy="10" r="2.1" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="M3.4 3.4l13.2 13.2" />
+      <path d="M8.2 5.7A7.9 7.9 0 0 1 10 5.4c4.7 0 7.4 4.6 7.4 4.6a13 13 0 0 1-2.5 2.9" />
+      <path d="M11.9 14.3A7.7 7.7 0 0 1 10 14.6C5.3 14.6 2.6 10 2.6 10a13.2 13.2 0 0 1 3.1-3.4" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M10 3.4v9.2M6.4 9.4 10 13l3.6-3.6" />
+      <path d="M3.6 14.2v1.2a1.4 1.4 0 0 0 1.4 1.4h10a1.4 1.4 0 0 0 1.4-1.4v-1.2" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M10 12.6V3.4M6.4 6.8 10 3.2l3.6 3.6" />
+      <path d="M3.6 14.2v1.2a1.4 1.4 0 0 0 1.4 1.4h10a1.4 1.4 0 0 0 1.4-1.4v-1.2" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="10" cy="10" r="6.8" />
+      <path d="M3.4 10h13.2M10 3.2a10.2 10.2 0 0 1 0 13.6M10 3.2a10.2 10.2 0 0 0 0 13.6" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M8.4 3.4H5.2A1.8 1.8 0 0 0 3.4 5.2v9.6a1.8 1.8 0 0 0 1.8 1.8h3.2" />
+      <path d="M12.6 6.6 16.4 10l-3.8 3.4M7.8 10h8.4" />
+    </>
+  ),
+  alert: (
+    <>
+      <circle cx="10" cy="10" r="6.8" />
+      <path d="M10 6.8v3.8" />
+      <circle cx="10" cy="13.4" r="0.8" fill="currentColor" stroke="none" />
+    </>
+  ),
 }
 
 export type IconName = keyof typeof shapes
 
 export function Icon({
   name,
+  size = 16,
   ...rest
-}: { name: IconName | string } & SVGProps<SVGSVGElement>) {
+}: { name: IconName | string; size?: number } & SVGProps<SVGSVGElement>) {
   return (
     <svg
+      width={size}
+      height={size}
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={1.55}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -157,8 +218,8 @@ export function Mark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className="mark">
       <g fill="none" stroke="currentColor" strokeLinecap="round">
-        <path d="M6.4 4.8V19.2M12 4.8V19.2M17.6 4.8V19.2" strokeWidth="1.4" opacity="0.5" />
-        <path d="M4.8 9.2H19.2M4.8 14.8H19.2" strokeWidth="2" />
+        <path d="M6.4 4.8V19.2M12 4.8V19.2M17.6 4.8V19.2" strokeWidth="1.4" opacity="0.45" />
+        <path d="M4.8 9.2H19.2M4.8 14.8H19.2" strokeWidth="2.1" />
       </g>
     </svg>
   )

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ago, api, type Subscription } from '../api'
-import { Copy, Empty, Modal, Switch, notify } from '../ui'
+import { Icon } from '../icons'
+import { ConfirmModal, Copy, Empty, Modal, Switch, notify } from '../ui'
 import type { PageProps } from '../App'
 
 const formatLabel: Record<string, string> = {
@@ -27,17 +28,40 @@ function randomBearer() {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-function ClientLink({ label, value }: { label: string; value: string }) {
+function ClientLink({
+  label,
+  value,
+  openable = true,
+}: {
+  label: string
+  value: string
+  openable?: boolean
+}) {
+  const { t } = useTranslation()
   return (
     <div className="client-link">
-      <p>{label}</p>
-      <code>{value}</code>
-      <Copy value={value} />
+      <div className="client-link-head">
+        <span>{label}</span>
+        <div className="actions">
+          {openable && (
+            <a className="btn-link quiet small" href={value}>
+              <Icon name="arrowUpRight" size={14} />
+              <span>{t('打开客户端')}</span>
+            </a>
+          )}
+          <Copy value={value} />
+        </div>
+      </div>
+      <code className="mono">{value}</code>
     </div>
   )
 }
 
-export function Subscriptions({ state, refresh }: PageProps) {
+type ConfirmAction =
+  | { type: 'rotate'; sub: Subscription }
+  | { type: 'delete'; sub: Subscription }
+
+export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
   const { t } = useTranslation()
   const [creating, setCreating] = useState(false)
   const [bundleID, setBundleID] = useState(state.bundles[0]?.id ?? '')
@@ -51,6 +75,16 @@ export function Subscriptions({ state, refresh }: PageProps) {
   const [renaming, setRenaming] = useState<Subscription | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
   const [sharing, setSharing] = useState<Subscription | null>(null)
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+
+  useEffect(() => {
+    const createBundle = new URLSearchParams(search).get('create')
+    if (createBundle && state.bundles.some((b) => b.id === createBundle)) {
+      setBundleID(createBundle)
+      setCreating(true)
+      navigate('/subscriptions')
+    }
+  }, [search, state.bundles, navigate])
 
   const url = (s: Subscription) =>
     `${state.publicBase}/sub/${s.token}${s.accessKey ? `?key=${s.accessKey}` : ''}`
@@ -65,7 +99,7 @@ export function Subscriptions({ state, refresh }: PageProps) {
       setFresh({ label: res.subscription.label, url: res.url })
       await refresh()
     } catch (e) {
-      notify((e as Error).message)
+      notify((e as Error).message, 'bad')
     } finally {
       setBusy(false)
     }
@@ -77,15 +111,27 @@ export function Subscriptions({ state, refresh }: PageProps) {
   ) {
     const res = await api.patchSubscription(s.id, body)
     if (res.url) setFresh({ label: s.label || t('未命名'), url: res.url })
-    notify(t('已更新'))
+    notify(t('已更新'), 'ok')
     await refresh()
   }
 
-  async function remove(s: Subscription) {
-    if (!confirm(t('删除订阅「{{name}}」？客户端将无法继续拉取。', { name: s.label || t('未命名') }))) return
-    await api.deleteSubscription(s.id)
-    notify(t('订阅已删除'))
-    await refresh()
+  async function runConfirmed() {
+    if (!confirmAction) return
+    setBusy(true)
+    try {
+      if (confirmAction.type === 'rotate') {
+        await patch(confirmAction.sub, { rotate: true })
+      } else {
+        await api.deleteSubscription(confirmAction.sub.id)
+        notify(t('订阅已删除'), 'ok')
+        await refresh()
+      }
+      setConfirmAction(null)
+    } catch (e) {
+      notify((e as Error).message, 'bad')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -98,141 +144,216 @@ export function Subscriptions({ state, refresh }: PageProps) {
         <div className="actions">
           <button
             className="primary"
-            onClick={() => setCreating(true)}
+            onClick={() => {
+              if (!bundleID && state.bundles[0]) setBundleID(state.bundles[0].id)
+              setCreating(true)
+            }}
             disabled={state.bundles.length === 0}
           >
-            {t('新建订阅')}
+            <Icon name="plus" size={15} />
+            <span>{t('新建订阅')}</span>
           </button>
         </div>
       </div>
 
       <section>
         {state.subscriptions.length === 0 ? (
-          <Empty
-            title={t('还没有订阅链接')}
-            body={
-              state.bundles.length
-                ? t('从一条编排生成链接，粘进客户端即可。')
-                : t('先创建一条编排，再生成订阅链接。')
-            }
-          />
+          <div className="panel">
+            <Empty
+              icon="link"
+              title={t('还没有订阅链接')}
+              body={
+                state.bundles.length
+                  ? t('从一条编排生成链接，粘进客户端即可。')
+                  : t('先创建一条编排，再生成订阅链接。')
+              }
+              action={
+                state.bundles.length > 0 ? (
+                  <button className="primary" onClick={() => setCreating(true)}>
+                    <Icon name="plus" size={15} />
+                    <span>{t('新建订阅')}</span>
+                  </button>
+                ) : (
+                  <button className="primary" onClick={() => navigate('/bundles/new')}>
+                    <Icon name="plus" size={15} />
+                    <span>{t('新建编排')}</span>
+                  </button>
+                )
+              }
+            />
+          </div>
         ) : (
           <ul className="sub-list">
-            {state.subscriptions.map((s) => (
-              <li key={s.id} className="sub-item" data-off={!s.enabled}>
-                <div className="sub-head">
-                  <span className="name">{s.label || t('未命名')}</span>
-                  <span className="badge">{t(formatLabel[s.format] ?? s.format)}</span>
-                  {!s.enabled && <span className="badge">{t('已停用')}</span>}
-                </div>
-                <div className="sub-url">
-                  <code>{url(s)}</code>
-                  <Copy value={url(s)} />
-                </div>
-                <p className="sub-meta">
-                  <span>{t('编排 {{name}}', { name: s.bundleName })}</span>
-                  <span>{t('拉取 {{n}} 次', { n: s.hits })}</span>
-                  <span>{s.lastUsedAt ? t('最近 {{ago}}', { ago: ago(s.lastUsedAt) }) : t('还没被拉取过')}</span>
-                </p>
-                <div className="devices">
-                  {(s.devices ?? []).length === 0 ? (
-                    <span>{t('还没有设备拉取过这条链接')}</span>
-                  ) : (
-                    (s.devices ?? []).map((d) => (
-                      <span
-                        key={d.device}
-                        title={`${d.ua || d.device}
-${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastAt), n: d.hits })}`}
+            {state.subscriptions.map((s) => {
+              const link = url(s)
+              return (
+                <li key={s.id} className="sub-card panel" data-off={!s.enabled}>
+                  <div className="sub-card-top">
+                    <div className="sub-head">
+                      <span className="name">{s.label || t('未命名')}</span>
+                      <span className="badge badge-accent">{s.bundleName}</span>
+                      <span className="badge">{t(formatLabel[s.format] ?? s.format)}</span>
+                      {!s.enabled && <span className="badge badge-warn">{t('已停用')}</span>}
+                    </div>
+                    <div className="sub-quick">
+                      <button
+                        type="button"
+                        className="quiet small"
+                        onClick={() => setSharing(s)}
                       >
-                        {d.device} · {t('{{n}} 次 · {{ago}}', { n: d.hits, ago: ago(d.lastAt) })}
+                        <Icon name="share" size={14} />
+                        <span>{t('导入到客户端')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="quiet small icon-btn"
+                        aria-label={t('二维码')}
+                        title={t('二维码')}
+                        onClick={() => setQr(s)}
+                      >
+                        <Icon name="qr" size={15} />
+                      </button>
+                      <Switch
+                        checked={s.enabled}
+                        label={s.enabled ? t('停用订阅') : t('启用订阅')}
+                        onChange={() => void patch(s, { enabled: !s.enabled })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sub-url">
+                    <code
+                      title={link}
+                      onClick={(e) => {
+                        const range = document.createRange()
+                        range.selectNodeContents(e.currentTarget)
+                        const sel = window.getSelection()
+                        sel?.removeAllRanges()
+                        sel?.addRange(range)
+                      }}
+                    >
+                      {link}
+                    </code>
+                    <Copy value={link} label={t('复制链接')} />
+                  </div>
+
+                  <div className="sub-info-row">
+                    <div className="sub-meta">
+                      <span className="num">{t('拉取 {{n}} 次', { n: s.hits })}</span>
+                      <span>
+                        {s.lastUsedAt ? t('最近 {{ago}}', { ago: ago(s.lastUsedAt) }) : t('还没被拉取过')}
                       </span>
-                    ))
-                  )}
-                </div>
-                <div className="sub-actions">
-                  <Switch
-                    checked={s.enabled}
-                    label={s.enabled ? t('停用订阅') : t('启用订阅')}
-                    onChange={() => void patch(s, { enabled: !s.enabled })}
-                  />
-                  <select
-                    value={s.format}
-                    aria-label={t('输出格式')}
-                    onChange={(e) => void patch(s, { format: e.target.value })}
-                  >
-                    <option value="mihomo">mihomo</option>
-                    <option value="base64">base64</option>
-                    <option value="text">{t('明文')}</option>
-                  </select>
-                  <button
-                    className="quiet small"
-                    onClick={() => {
-                      setRenaming(s)
-                      setLabelDraft(s.label)
-                    }}
-                  >
-                    {t('重命名')}
-                  </button>
-                  <button className="quiet small" onClick={() => setSharing(s)}>
-                    {t('导入到客户端')}
-                  </button>
-                  <button
-                    className="quiet small"
-                    onClick={() => {
-                      setAuthSub(s)
-                      setBearerDraft(s.bearer)
-                    }}
-                  >
-                    {t('鉴权')}
-                  </button>
-                  <button className="quiet small" onClick={() => setQr(s)}>
-                    {t('二维码')}
-                  </button>
-                  <button
-                    className="quiet small"
-                    onClick={() => {
-                      if (confirm(t('轮换地址？旧链接会立刻失效。'))) void patch(s, { rotate: true })
-                    }}
-                  >
-                    {t('轮换地址')}
-                  </button>
-                  <button className="danger small" onClick={() => void remove(s)}>
-                    {t('删除')}
-                  </button>
-                </div>
-              </li>
-            ))}
+                    </div>
+                    <div className="devices">
+                      {(s.devices ?? []).length === 0 ? (
+                        <span className="muted">{t('还没有设备拉取过这条链接')}</span>
+                      ) : (
+                        (s.devices ?? []).map((d) => (
+                          <span
+                            key={d.device}
+                            className="device-chip"
+                            title={`${d.ua || d.device}\n${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', {
+                              ip: d.ip,
+                              ago: ago(d.lastAt),
+                              n: d.hits,
+                            })}`}
+                          >
+                            <Icon name="device" size={12} />
+                            <span>{d.device}</span>
+                            <em className="num">
+                              {t('{{n}} 次 · {{ago}}', { n: d.hits, ago: ago(d.lastAt) })}
+                            </em>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="sub-actions">
+                    <select
+                      value={s.format}
+                      aria-label={t('输出格式')}
+                      onChange={(e) => void patch(s, { format: e.target.value })}
+                    >
+                      <option value="mihomo">mihomo</option>
+                      <option value="base64">base64</option>
+                      <option value="text">{t('明文')}</option>
+                    </select>
+                    <button
+                      className="quiet small"
+                      onClick={() => {
+                        setRenaming(s)
+                        setLabelDraft(s.label)
+                      }}
+                    >
+                      <Icon name="pencil" size={13} />
+                      <span>{t('重命名')}</span>
+                    </button>
+                    <button
+                      className="quiet small"
+                      onClick={() => {
+                        setAuthSub(s)
+                        setBearerDraft(s.bearer)
+                      }}
+                    >
+                      <Icon name="key" size={13} />
+                      <span>{t('鉴权')}</span>
+                    </button>
+                    <button
+                      className="quiet small"
+                      onClick={() => setConfirmAction({ type: 'rotate', sub: s })}
+                    >
+                      <Icon name="refresh" size={13} />
+                      <span>{t('轮换地址')}</span>
+                    </button>
+                    <button
+                      className="danger small push"
+                      onClick={() => setConfirmAction({ type: 'delete', sub: s })}
+                    >
+                      <Icon name="trash" size={13} />
+                      <span>{t('删除')}</span>
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </section>
 
-      <section>
-        <div className="section-head">
-          <h2>{t('客户端怎么填')}</h2>
-          <span className="small muted">{t('三种输出格式的区别')}</span>
+      <details className="disclosure panel" open={state.subscriptions.length === 0}>
+        <summary>
+          <span className="disclosure-title">
+            <Icon name="link" size={15} />
+            <span>{t('客户端怎么填')}</span>
+          </span>
+          <span className="disclosure-meta small muted">{t('三种输出格式的区别')}</span>
+          <Icon name="chevronDown" size={15} className="disclosure-chevron" />
+        </summary>
+        <div className="disclosure-body">
+          <ul className="facts">
+            <li>
+              <span>mihomo YAML</span>
+              <span>{t('整份配置，直接作为 profile 地址。')}</span>
+            </li>
+            <li>
+              <span>{t('base64 链接')}</span>
+              <span>{t('节点列表，给只吃节点的客户端。')}</span>
+            </li>
+            <li>
+              <span>{t('明文链接')}</span>
+              <span>
+                {t('一行一个')} <code className="mono">ss://</code> {t('或')} <code className="mono">vmess://</code>
+                {t('，便于脚本处理。')}
+              </span>
+            </li>
+          </ul>
+          <p className="small muted disclosure-note">
+            {t('轮换后旧地址立即失效。同型号设备想分开统计，在链接后加')}{' '}
+            <code>?tag=living-room AppleTV</code>。
+          </p>
         </div>
-        <ul className="facts">
-          <li>
-            <span>mihomo YAML</span>
-            <span>{t('整份配置，直接作为 profile 地址。')}</span>
-          </li>
-          <li>
-            <span>{t('base64 链接')}</span>
-            <span>{t('节点列表，给只吃节点的客户端。')}</span>
-          </li>
-          <li>
-            <span>{t('明文链接')}</span>
-            <span>
-              {t('一行一个')} <span className="mono">ss://</span> {t('或')} <span className="mono">vmess://</span>
-              {t('，便于脚本处理。')}
-            </span>
-          </li>
-        </ul>
-        <p className="small muted">
-          {t('轮换后旧地址立即失效。同型号设备想分开统计，在链接后加')}{' '}
-          <code>?tag=living-room AppleTV</code>。
-        </p>
-      </section>
+      </details>
 
       {renaming && (
         <Modal
@@ -249,7 +370,7 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
                 onClick={() => {
                   void patch(renaming, { label: labelDraft.trim() })
                     .then(() => setRenaming(null))
-                    .catch((e) => notify((e as Error).message))
+                    .catch((e) => notify((e as Error).message, 'bad'))
                 }}
               >
                 {t('保存')}
@@ -280,7 +401,7 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
           <ClientLink label="Clash Verge / mihomo" value={clashLink(url(sharing))} />
           <ClientLink label="Shadowrocket" value={shadowrocketLink(url(sharing), sharing.label || t('未命名'))} />
           <ClientLink label="sing-box" value={singboxLink(url(sharing), sharing.label || t('未命名'))} />
-          <ClientLink label={t('订阅地址')} value={url(sharing)} />
+          <ClientLink label={t('订阅地址')} value={url(sharing)} openable={false} />
         </Modal>
       )}
 
@@ -298,10 +419,10 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
                 onClick={() => {
                   void patch(authSub, { bearer: bearerDraft })
                     .then(() => {
-                      notify(t('鉴权已更新'))
+                      notify(t('鉴权已更新'), 'ok')
                       setAuthSub(null)
                     })
-                    .catch((e) => notify((e as Error).message))
+                    .catch((e) => notify((e as Error).message, 'bad'))
                 }}
               >
                 {t('保存鉴权')}
@@ -311,9 +432,7 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
         >
           <p>{t('这条链接支持两种凭据：URL 里的 key，或请求头 Authorization: Bearer。')}</p>
           <label className="field">
-            <span>
-              {t('访问密钥')}（URL）
-            </span>
+            <span>{t('访问密钥')}（URL）</span>
             <input className="mono" readOnly value={authSub.accessKey} />
           </label>
           <label className="field">
@@ -323,11 +442,12 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
           </label>
           <div className="actions">
             <button className="quiet small" onClick={() => setBearerDraft(randomBearer())}>
-              {t('重新生成')}
+              <Icon name="refresh" size={14} />
+              <span>{t('重新生成')}</span>
             </button>
             <Copy value={`Authorization: Bearer ${bearerDraft}`} label={t('复制')} />
           </div>
-          <p className="small muted">{t('轮换会同时换掉 key 与 bearer token。')}</p>
+          <p className="small muted disclosure-note">{t('轮换会同时换掉 key 与 bearer token。')}</p>
         </Modal>
       )}
 
@@ -394,10 +514,30 @@ ${t('IP {{ip}} · 最近 {{ago}} · 共 {{n}} 次', { ip: d.ip, ago: ago(d.lastA
       {qr && (
         <Modal title={t('{{name}} · 二维码', { name: qr.label || t('未命名') })} onClose={() => setQr(null)}>
           <div className="qr">
-            <img src={`/api/subscriptions/${qr.id}/qr.png?size=360`} alt={t('订阅二维码')} width={280} height={280} />
+            <img src={`/api/subscriptions/${qr.id}/qr.png?size=360`} alt={t('订阅二维码')} width={264} height={264} />
             <code className="mono">{url(qr)}</code>
+            <div className="qr-actions">
+              <Copy value={url(qr)} label={t('复制链接')} />
+            </div>
           </div>
         </Modal>
+      )}
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.type === 'rotate' ? t('确认轮换') : t('确认删除')}
+          message={
+            confirmAction.type === 'rotate'
+              ? t('轮换地址？旧链接会立刻失效。')
+              : t('删除订阅「{{name}}」？客户端将无法继续拉取。', {
+                  name: confirmAction.sub.label || t('未命名'),
+                })
+          }
+          confirmLabel={confirmAction.type === 'rotate' ? t('立即轮换') : t('删除')}
+          busy={busy}
+          onConfirm={runConfirmed}
+          onClose={() => setConfirmAction(null)}
+        />
       )}
     </>
   )

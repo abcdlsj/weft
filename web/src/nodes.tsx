@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, type ProxyNode } from './api'
+import { Icon } from './icons'
 import { notify } from './ui'
 
 /* Protocol definitions drive the form. Adding a protocol means adding one entry
@@ -253,29 +254,33 @@ export function NodeForm({
           </button>
         ))}
       </div>
-      <p className="small muted">{t(spec.blurb)}</p>
+      <p className="small muted node-blurb">{t(spec.blurb)}</p>
 
       {groups.map((group, gi) => (
-        <div key={group.name || gi}>
-          {group.name && <h3>{group.name}</h3>}
+        <div key={group.name || gi} className="node-group">
+          {group.name && <h3 className="sub-heading">{group.name}</h3>}
           <div className="form-grid">
             {group.fields.map((field) =>
               field.kind === 'switch' ? (
-                <div className="field" key={field.key}>
-                  <span>{t(field.label)}</span>
-                  <button
-                    type="button"
-                    className="switch"
-                    role="switch"
-                    aria-checked={values[field.key] === 'true'}
-                    aria-label={t(field.label)}
-                    onClick={() =>
-                      setValues((v) => ({ ...v, [field.key]: v[field.key] === 'true' ? 'false' : 'true' }))
-                    }
-                  >
-                    <span />
-                  </button>
-                  {field.hint && <span className="hint">{t(field.hint)}</span>}
+                <div className="field field-switch" key={field.key}>
+                  <div className="field-switch-row">
+                    <div>
+                      <span className="field-label">{t(field.label)}</span>
+                      {field.hint && <span className="hint">{t(field.hint)}</span>}
+                    </div>
+                    <button
+                      type="button"
+                      className="switch"
+                      role="switch"
+                      aria-checked={values[field.key] === 'true'}
+                      aria-label={t(field.label)}
+                      onClick={() =>
+                        setValues((v) => ({ ...v, [field.key]: v[field.key] === 'true' ? 'false' : 'true' }))
+                      }
+                    >
+                      <span />
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <label key={field.key} className={`field${field.wide ? ' full' : ''}`}>
@@ -313,7 +318,7 @@ export function NodeForm({
 
       {error && <p className="error">{error}</p>}
 
-      <div className="actions">
+      <div className="actions modal-inline-actions">
         <button className="primary" onClick={() => void submit()} disabled={busy}>
           {busy ? t('保存中…') : t('保存节点')}
         </button>
@@ -325,8 +330,6 @@ export function NodeForm({
   )
 }
 
-/* Links are what people actually have. The preview is deliberately shallow: the
-   server does the real parsing and tells us which lines it could not read. */
 function peekLink(link: string) {
   const trimmed = link.trim()
   const match = /^([a-z0-9]+):\/\/(.+)$/i.exec(trimmed)
@@ -382,11 +385,11 @@ export function LinkImport({
     try {
       const res = await api.createNode(hostId, { links })
       if (res.failed?.length) {
-        notify(t('已导入 {{saved}} 条，{{failed}} 条失败', { saved: res.saved.length, failed: res.failed.length }))
+        notify(t('已导入 {{saved}} 条，{{failed}} 条失败', { saved: res.saved.length, failed: res.failed.length }), 'bad')
         setError(res.failed.join('；'))
         await onDone()
       } else {
-        notify(t('已导入 {{n}} 条节点', { n: res.saved.length }))
+        notify(t('已导入 {{n}} 条节点', { n: res.saved.length }), 'ok')
         await onDone()
         onCancel()
       }
@@ -420,7 +423,7 @@ export function LinkImport({
         </ul>
       )}
       {error && <p className="error">{error}</p>}
-      <div className="actions">
+      <div className="actions modal-inline-actions">
         <button className="primary" onClick={() => void submit()} disabled={busy || !usable}>
           {busy ? t('导入中…') : usable ? t('导入 {{n}} 条', { n: usable }) : t('导入')}
         </button>
@@ -436,6 +439,7 @@ const SOURCE_LABEL: Record<string, string> = {
   agent: 'mihomo',
   config: '配置',
   manual: '手工',
+  sub: '订阅',
 }
 
 export function SourceTag({ source }: { source: string }) {
@@ -458,6 +462,14 @@ function sourceTitle(source: string, t: (s: string) => string) {
   }
 }
 
+export function delayTone(alive: boolean, delayMs: number): 'ok' | 'warn' | 'bad' | 'muted' {
+  if (!alive) return 'bad'
+  if (!delayMs) return 'muted'
+  if (delayMs < 100) return 'ok'
+  if (delayMs > 250) return 'warn'
+  return 'muted'
+}
+
 export function NodeTable({
   nodes,
   onEdit,
@@ -475,7 +487,7 @@ export function NodeTable({
   }
   return (
     <div className="table-wrap">
-      <table className={compact ? 'small' : undefined}>
+      <table className={compact ? 'compact-table node-table' : 'node-table'}>
         <thead>
           <tr>
             <th>{t('节点')}</th>
@@ -487,57 +499,70 @@ export function NodeTable({
           </tr>
         </thead>
         <tbody>
-          {nodes.map((node) => (
-            <tr key={node.key}>
-              <td>
-                <span className="mono truncate">{node.name}</span>
-              </td>
-              <td className="mono small muted">{node.type}</td>
-              <td className="mono small muted truncate">
-                {node.server}:{node.port}
-              </td>
-              <td>
-                <SourceTag source={node.source} />
-              </td>
-              <td className="num">
-                {node.alive ? (
-                  node.delayMs ? `${node.delayMs} ms` : '—'
-                ) : (
-                  <span className="muted">{t('不可用')}</span>
-                )}
-              </td>
-              {(onEdit || onDelete) && (
+          {nodes.map((node) => {
+            const tone = delayTone(node.alive, node.delayMs)
+            return (
+              <tr key={node.key}>
                 <td>
-                  {node.source === 'manual' ? (
-                    <span className="row-actions">
-                      {onEdit && (
-                        <button
-                          className="icon small"
-                          aria-label={t('编辑 {{name}}', { name: node.name })}
-                          onClick={() => onEdit(node)}
-                        >
-                          {t('编辑')}
-                        </button>
-                      )}
-                      {onDelete && (
-                        <button
-                          className="icon small"
-                          aria-label={t('删除 {{name}}', { name: node.name })}
-                          onClick={() => onDelete(node)}
-                        >
-                          {t('删除')}
-                        </button>
-                      )}
+                  <span className="mono truncate node-cell-name" title={node.name}>
+                    {node.name}
+                  </span>
+                </td>
+                <td>
+                  <span className="proto-pill mono">{node.type}</span>
+                </td>
+                <td className="mono small muted">
+                  <span className="truncate node-cell-addr" title={`${node.server}:${node.port}`}>
+                    {node.server}:{node.port}
+                  </span>
+                </td>
+                <td>
+                  <SourceTag source={node.source} />
+                </td>
+                <td className="num">
+                  {node.alive ? (
+                    <span className={`delay-val num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : ''}`}>
+                      {node.delayMs ? `${node.delayMs} ms` : '—'}
                     </span>
                   ) : (
-                    <span className="small muted" title={t('自动采集，不能在这里改')}>
-                      {t('自动')}
-                    </span>
+                    <span className="small is-bad">{t('不可用')}</span>
                   )}
                 </td>
-              )}
-            </tr>
-          ))}
+                {(onEdit || onDelete) && (
+                  <td className="num">
+                    {node.source === 'manual' ? (
+                      <span className="row-actions row-actions-end">
+                        {onEdit && (
+                          <button
+                            className="icon small icon-btn"
+                            aria-label={t('编辑 {{name}}', { name: node.name })}
+                            title={t('编辑')}
+                            onClick={() => onEdit(node)}
+                          >
+                            <Icon name="pencil" size={14} />
+                          </button>
+                        )}
+                        {onDelete && (
+                          <button
+                            className="icon small icon-btn icon-danger"
+                            aria-label={t('删除 {{name}}', { name: node.name })}
+                            title={t('删除')}
+                            onClick={() => onDelete(node)}
+                          >
+                            <Icon name="trash" size={14} />
+                          </button>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="small muted" title={t('自动采集，不能在这里改')}>
+                        {t('自动')}
+                      </span>
+                    )}
+                  </td>
+                )}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

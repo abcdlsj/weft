@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, setCSRF, type FleetState, type Me } from './api'
-import { Mark } from './icons'
+import { Icon, Mark, type IconName } from './icons'
 import { Toaster, notify } from './ui'
 import { Login } from './pages/Login'
 import { Overview } from './pages/Overview'
@@ -12,40 +12,49 @@ import { Subscriptions } from './pages/Subscriptions'
 import { Settings } from './pages/Settings'
 const Rules = lazy(() => import('./pages/Rules').then((m) => ({ default: m.Rules })))
 
+export type Theme = 'light' | 'dark' | 'auto'
+
 export interface PageProps {
   state: FleetState
   refresh: () => Promise<void>
   navigate: (path: string) => void
+  search: string
   theme: Theme
   setTheme: (t: Theme) => void
 }
 
-type Theme = 'light' | 'dark' | 'auto'
-
-const nav = [
-  { path: '/', label: '概览' },
-  { path: '/hosts', label: '机器' },
-  { path: '/bundles', label: '编排' },
-  { path: '/subscriptions', label: '订阅' },
-  { path: '/rules', label: '规则' },
-  { path: '/settings', label: '设置' },
+const nav: { path: string; label: string; icon: IconName }[] = [
+  { path: '/', label: '概览', icon: 'overview' },
+  { path: '/hosts', label: '机器', icon: 'hosts' },
+  { path: '/bundles', label: '编排', icon: 'layers' },
+  { path: '/subscriptions', label: '订阅', icon: 'link' },
+  { path: '/rules', label: '规则', icon: 'rules' },
+  { path: '/settings', label: '设置', icon: 'gear' },
 ]
 
-function usePath() {
-  const [path, setPath] = useState(window.location.pathname)
+function useLocation() {
+  const [loc, setLoc] = useState(() => ({
+    pathname: window.location.pathname,
+    search: window.location.search,
+  }))
   useEffect(() => {
-    const onPop = () => setPath(window.location.pathname)
+    const onPop = () =>
+      setLoc({ pathname: window.location.pathname, search: window.location.search })
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
   const navigate = useCallback((next: string) => {
-    if (next !== window.location.pathname) {
-      window.history.pushState(null, '', next)
-      setPath(next)
-      window.scrollTo({ top: 0 })
+    const url = new URL(next, window.location.origin)
+    const full = url.pathname + url.search
+    if (full !== window.location.pathname + window.location.search) {
+      window.history.pushState(null, '', full)
+      setLoc({ pathname: url.pathname, search: url.search })
+      if (url.pathname !== window.location.pathname) {
+        window.scrollTo({ top: 0 })
+      }
     }
   }, [])
-  return [path, navigate] as const
+  return [loc, navigate] as const
 }
 
 export default function App() {
@@ -53,19 +62,23 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [state, setState] = useState<FleetState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [path, navigate] = usePath()
+  const [loc, navigate] = useLocation()
   const [theme, setTheme] = useTheme()
   const [updateReady, setUpdateReady] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const poll = useRef<number | null>(null)
   const baselineVersion = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
+    setRefreshing(true)
     try {
       const next = await api.state()
       setState(next)
       setError(null)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setRefreshing(false)
     }
   }, [])
 
@@ -83,8 +96,6 @@ export default function App() {
   useEffect(() => {
     const onUpdate = () => setUpdateReady(true)
     window.addEventListener('weft:update', onUpdate)
-    // The service worker only changes when its own file changes. Comparing the
-    // server version catches an app-only deploy while a tab stays open.
     const checkVersion = () => {
       api
         .version()
@@ -115,10 +126,18 @@ export default function App() {
     }
   }, [me?.authenticated, refresh])
 
+  const cycleTheme = () => {
+    const next: Theme = theme === 'auto' ? 'light' : theme === 'light' ? 'dark' : 'auto'
+    setTheme(next)
+  }
+
+  const themeIcon: IconName = theme === 'dark' ? 'moon' : theme === 'light' ? 'sun' : 'monitor'
+  const themeLabel = theme === 'dark' ? t('深色') : theme === 'light' ? t('浅色') : t('跟随系统')
+
   if (!me) {
     return (
       <div className="boot">
-        <Mark size={22} />
+        <Mark size={26} />
       </div>
     )
   }
@@ -129,6 +148,8 @@ export default function App() {
         <Login
           needsSetup={me.needsSetup}
           demo={me.demo}
+          theme={theme}
+          onCycleTheme={cycleTheme}
           onDone={() => {
             api.me().then((m) => {
               setCSRF(m.csrf ?? '')
@@ -145,72 +166,115 @@ export default function App() {
   if (!state) {
     return (
       <div className="boot">
-        <Mark size={22} />
+        <Mark size={26} />
         <p>{error ?? t('正在读取集群状态')}</p>
         {error && (
           <button className="quiet" onClick={() => void refresh()}>
-            {t('重试')}
+            <Icon name="refresh" size={14} />
+            <span>{t('重试')}</span>
           </button>
         )}
       </div>
     )
   }
 
-  const page = renderPage(path, { state, refresh, navigate, theme, setTheme })
+  const path = loc.pathname
+  const page = renderPage(path, { state, refresh, navigate, search: loc.search, theme, setTheme })
   const online = state.stats.hostsOnline
+  const offlineCount = Math.max(0, state.stats.hostsTotal - state.stats.hostsOnline)
+  const latestSeen = state.hosts.length ? Math.max(...state.hosts.map((h) => h.lastSeen)) : 0
 
   return (
     <div className="app">
-      <header className="top">
-        <a className="brand" href="/" onClick={(e) => (e.preventDefault(), navigate('/'))}>
-          <Mark />
-          <span>Weft</span>
-        </a>
+      <header className="top-bar">
+        <div className="top-inner">
+          <a className="brand" href="/" onClick={(e) => (e.preventDefault(), navigate('/'))}>
+            <Mark size={22} />
+            <span>Weft</span>
+            {state.demo && <span className="brand-tag">{t('演示数据')}</span>}
+          </a>
 
-        <nav className="main-nav">
-          {nav.map((item) => {
-            const active =
-              item.path === '/' ? path === '/' : path === item.path || path.startsWith(item.path + '/')
-            return (
-              <a
-                key={item.path}
-                href={item.path}
-                aria-current={active ? 'page' : undefined}
-                onClick={(e) => {
-                  e.preventDefault()
-                  navigate(item.path)
-                }}
-              >
-                {t(item.label)}
-                {item.path === '/hosts' && state.stats.hostsOnline < state.stats.hostsTotal && (
-                  <span className="muted"> {state.stats.hostsTotal - state.stats.hostsOnline}</span>
-                )}
-              </a>
-            )
-          })}
-        </nav>
+          <nav className="main-nav" aria-label="Main">
+            {nav.map((item) => {
+              const active =
+                item.path === '/' ? path === '/' : path === item.path || path.startsWith(item.path + '/')
+              return (
+                <a
+                  key={item.path}
+                  href={item.path}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    navigate(item.path)
+                  }}
+                >
+                  <Icon name={item.icon} size={15} className="nav-icon" />
+                  <span>{t(item.label)}</span>
+                  {item.path === '/hosts' && offlineCount > 0 && (
+                    <span
+                      className="nav-alert num"
+                      title={t('{{n}} 台离线或异常', { n: offlineCount })}
+                    >
+                      {offlineCount}
+                    </span>
+                  )}
+                </a>
+              )
+            })}
+          </nav>
 
-        <span className="top-aside">
-          <span>
-            {state.demo ? t('演示实例') : t('{{n}} 台在线', { n: online })}
-            {' · '}
-            {t('最近上报')}{' '}
-            {state.hosts.length ? agoShort(Math.max(...state.hosts.map((h) => h.lastSeen))) : '—'}
-          </span>
-          <button
-            className="text small"
-            onClick={() => {
-              setCSRF('')
-              api.logout().catch(() => {}).finally(() => window.location.reload())
-            }}
-          >
-            {t('结束会话')}
-          </button>
-        </span>
+          <div className="top-aside">
+            <button
+              type="button"
+              className="live-chip"
+              title={t('刷新')}
+              onClick={() => void refresh()}
+            >
+              <span className="live-dot" data-warn={offlineCount > 0} />
+              <span className="num">
+                {state.demo ? t('演示实例') : t('{{n}} 台在线', { n: online })}
+              </span>
+              <span className="live-sep">·</span>
+              <span className="num muted">{latestSeen ? agoShort(latestSeen) : '—'}</span>
+              {refreshing && <Icon name="refresh" size={12} className="spin" />}
+            </button>
+
+            <button
+              type="button"
+              className="icon top-icon-btn"
+              onClick={cycleTheme}
+              aria-label={`${t('切换主题')} (${themeLabel})`}
+              title={`${t('主题')}: ${themeLabel}`}
+            >
+              <Icon name={themeIcon} size={16} />
+            </button>
+
+            <button
+              type="button"
+              className="icon top-icon-btn"
+              aria-label={t('结束会话')}
+              title={t('结束会话')}
+              onClick={() => {
+                setCSRF('')
+                api.logout().catch(() => {}).finally(() => window.location.reload())
+              }}
+            >
+              <Icon name="logout" size={16} />
+            </button>
+          </div>
+        </div>
       </header>
 
-      <main>
-        <Suspense fallback={<div className="boot"><Mark size={22} /></div>}>{page}</Suspense>
+      <main className="page-container">
+        <Suspense
+          fallback={
+            <div className="boot">
+              <Mark size={24} />
+            </div>
+          }
+        >
+          {page}
+        </Suspense>
       </main>
 
       {updateReady && (
