@@ -114,6 +114,7 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
                       <td className="small muted">
                         <span>{t(groupByLabel[b.groupBy] ?? b.groupBy)}</span>
                         <span className="badge mono badge-space">{b.groupType}</span>
+                        {b.excludeIpv6Only && <span className="badge badge-space">{t('排除仅 IPv6')}</span>}
                       </td>
                       <td className="small muted">
                         {ruleName ? <span className="badge">{ruleName}</span> : '—'}

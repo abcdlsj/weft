@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ago, api, type Host, type HostKind, type ProxyNode } from '../api'
+import { ago, api, isNodeAvailable, isProbedSource, type Host, type HostKind, type ProxyNode } from '../api'
 import { Icon, type IconName } from '../icons'
 import { ConfirmModal, Copy, Drawer, Empty, Modal, StatusPill, notify } from '../ui'
 import { LinkImport, NodeForm, NodeTable, delayTone, protocolOf } from '../nodes'
@@ -111,6 +111,10 @@ export function Hosts({ state, refresh, navigate, search }: PageProps) {
   const issueCount = useMemo(
     () => state.hosts.filter((h) => (h.status !== 'online' && h.status !== 'manual') || !!h.subError).length,
     [state.hosts],
+  )
+  const hasProbedHosts = useMemo(
+    () => state.hosts.some((h) => h.kind === 'sub' || h.kind === 'static') || state.nodes.some((n) => isProbedSource(n.source)),
+    [state.hosts, state.nodes],
   )
 
   function openHost(id: string) {
@@ -268,6 +272,12 @@ export function Hosts({ state, refresh, navigate, search }: PageProps) {
               </div>
             </div>
 
+            {hasProbedHosts && (
+              <div className="probe-banner small muted">
+                <span>{t('探测来自服务器视角，不代表你的网络')}</span>
+              </div>
+            )}
+
             {filteredHosts.length === 0 ? (
               <div className="panel-pad">
                 <p className="small muted">{t('没有匹配的机器。')}</p>
@@ -289,11 +299,15 @@ export function Hosts({ state, refresh, navigate, search }: PageProps) {
                   <tbody>
                     {filteredHosts.map((h) => {
                       const all = state.nodes.filter((n) => n.hostId === h.id)
-                      const nodes = all.filter((n) => n.alive)
+                      const nodes = all.filter((n) => isNodeAvailable(n) && n.delayMs > 0)
                       const avg = nodes.length
                         ? Math.round(nodes.reduce((a, n) => a + n.delayMs, 0) / nodes.length)
                         : 0
                       const tone = avg ? delayTone(true, avg) : 'muted'
+                      const isProbeHost = h.kind === 'sub' || h.kind === 'static'
+                      const okCount = h.probeOkCount ?? 0
+                      const unverifiedCount = h.probeUnverifiedCount ?? 0
+                      const unreachableCount = h.probeUnreachableCount ?? 0
                       return (
                         <tr
                           key={h.id}
@@ -334,8 +348,36 @@ export function Hosts({ state, refresh, navigate, search }: PageProps) {
                             <NodeThreads nodes={all} />
                           </td>
                           <td className="num">
-                            {h.aliveCount}
-                            <span className="muted"> / {h.nodeCount}</span>
+                            {isProbeHost ? (
+                              h.nodeCount === 0 ? (
+                                <span className="muted">0</span>
+                              ) : h.lastProbedAt ? (
+                                <span className="probe-chips probe-chips-end">
+                                  <span className="probe-chip" data-tone="ok">
+                                    {t('可用 {{n}}', { n: okCount })}
+                                  </span>
+                                  {unverifiedCount > 0 && (
+                                    <span className="probe-chip" data-tone="warn">
+                                      {t('未验证 {{n}}', { n: unverifiedCount })}
+                                    </span>
+                                  )}
+                                  {unreachableCount > 0 && (
+                                    <span className="probe-chip" data-tone="bad">
+                                      {t('不可达 {{n}}', { n: unreachableCount })}
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="probe-chip" data-tone="muted">
+                                  {t('待探测 {{n}}', { n: h.nodeCount })}
+                                </span>
+                              )
+                            ) : (
+                              <>
+                                {h.aliveCount}
+                                <span className="muted"> / {h.nodeCount}</span>
+                              </>
+                            )}
                           </td>
                           <td className="num">
                             {avg ? (
@@ -347,17 +389,26 @@ export function Hosts({ state, refresh, navigate, search }: PageProps) {
                             )}
                           </td>
                           <td className="small muted">
-                            {h.kind === 'sub'
-                              ? h.subCheckedAt
-                                ? t('订阅 · {{ago}}', { ago: ago(h.subCheckedAt) })
-                                : t('订阅 · 未拉取')
-                              : h.kind === 'static'
-                                ? h.lastSeen
-                                  ? t('配置 · {{ago}}', { ago: ago(h.lastSeen) })
-                                  : t('配置 · 未上报')
-                                : h.lastSeen
-                                  ? t('mihomo · {{ago}}', { ago: ago(h.lastSeen) })
-                                  : t('mihomo · 未上报')}
+                            <div>
+                              {h.kind === 'sub'
+                                ? h.subCheckedAt
+                                  ? t('订阅 · {{ago}}', { ago: ago(h.subCheckedAt) })
+                                  : t('订阅 · 未拉取')
+                                : h.kind === 'static'
+                                  ? h.lastSeen
+                                    ? t('配置 · {{ago}}', { ago: ago(h.lastSeen) })
+                                    : t('配置 · 未上报')
+                                  : h.lastSeen
+                                    ? t('mihomo · {{ago}}', { ago: ago(h.lastSeen) })
+                                    : t('mihomo · 未上报')}
+                            </div>
+                            {isProbeHost && h.nodeCount > 0 && (
+                              <div className="cell-sub">
+                                {h.lastProbedAt
+                                  ? t('最近探测 {{ago}}', { ago: ago(h.lastProbedAt) })
+                                  : t('尚未探测')}
+                              </div>
+                            )}
                           </td>
                           <td className="num row-chevron">
                             <Icon name="chevron" size={15} />
@@ -524,16 +575,40 @@ weft agent --server ${state.publicBase} \\
             </div>
             <div>
               <span className="small muted">{t('可用节点')}</span>
-              <strong className="num">
-                {selected.aliveCount} / {selected.nodeCount}
-              </strong>
+              {selected.kind === 'sub' || selected.kind === 'static' ? (
+                selected.lastProbedAt ? (
+                  <div className="probe-chips">
+                    <span className="probe-chip" data-tone="ok">
+                      {t('可用 {{n}}', { n: selected.probeOkCount ?? 0 })}
+                    </span>
+                    {(selected.probeUnverifiedCount ?? 0) > 0 && (
+                      <span className="probe-chip" data-tone="warn">
+                        {t('未验证 {{n}}', { n: selected.probeUnverifiedCount ?? 0 })}
+                      </span>
+                    )}
+                    {(selected.probeUnreachableCount ?? 0) > 0 && (
+                      <span className="probe-chip" data-tone="bad">
+                        {t('不可达 {{n}}', { n: selected.probeUnreachableCount ?? 0 })}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <strong className="num muted">{t('尚未探测')}</strong>
+                )
+              ) : (
+                <strong className="num">
+                  {selected.aliveCount} / {selected.nodeCount}
+                </strong>
+              )}
             </div>
             <div>
-              <span className="small muted">{selected.kind === 'sub' ? t('最后拉取') : t('最后上报')}</span>
+              <span className="small muted">
+                {selected.kind === 'sub' || selected.kind === 'static' ? t('最近探测') : t('最后上报')}
+              </span>
               <strong className="num">
-                {selected.kind === 'sub'
-                  ? selected.subCheckedAt
-                    ? ago(selected.subCheckedAt)
+                {selected.kind === 'sub' || selected.kind === 'static'
+                  ? selected.lastProbedAt
+                    ? ago(selected.lastProbedAt)
                     : t('从未')
                   : selected.lastSeen
                     ? ago(selected.lastSeen)

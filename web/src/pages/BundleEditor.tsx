@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api, type Bundle } from '../api'
+import {
+  api,
+  isExcludedByIPv6Filter,
+  isIPv6OnlyNode,
+  isNodeAvailable,
+  isProbedSource,
+  nodeHealth,
+  type Bundle,
+} from '../api'
 import { Icon } from '../icons'
 import { delayTone } from '../nodes'
 import { Copy, notify } from '../ui'
@@ -47,6 +55,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
   const [groupType, setGroupType] = useState<Bundle['groupType']>(existing?.groupType ?? 'url-test')
   const [template, setTemplate] = useState(existing?.template ?? state.defaultTemplate ?? '')
   const [ruleSetID, setRuleSetID] = useState(existing?.ruleSetId ?? '')
+  const [excludeIpv6Only, setExcludeIpv6Only] = useState(existing?.excludeIpv6Only ?? false)
   const [showTemplate, setShowTemplate] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(
     () => new Set((existing?.members ?? []).map((m) => `${m.hostId}|${m.key}`)),
@@ -67,6 +76,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
       groupType: existing?.groupType ?? 'url-test',
       template: existing?.template ?? state.defaultTemplate ?? '',
       ruleSetID: existing?.ruleSetId ?? '',
+      excludeIpv6Only: existing?.excludeIpv6Only ?? false,
       members: (existing?.members ?? []).map((m) => `${m.hostId}|${m.key}`).sort(),
     }),
   )
@@ -80,17 +90,23 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
         groupType,
         template,
         ruleSetID,
+        excludeIpv6Only,
         members: [...picked].sort(),
       }),
-    [name, slug, groupBy, groupType, template, ruleSetID, picked],
+    [name, slug, groupBy, groupType, template, ruleSetID, excludeIpv6Only, picked],
   )
   const isDirty = currentSnapshot !== baseline
 
   const hostsByID = useMemo(() => new Map(state.hosts.map((h) => [h.id, h])), [state.hosts])
+  const hasProbedNodes = useMemo(() => state.nodes.some((n) => isProbedSource(n.source)), [state.nodes])
+  const excludedSelectedCount = useMemo(() => {
+    if (!excludeIpv6Only) return 0
+    return state.nodes.filter((n) => picked.has(`${n.hostId}|${n.key}`) && isExcludedByIPv6Filter(n)).length
+  }, [state.nodes, picked, excludeIpv6Only])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return state.nodes.filter((n) => {
-      if (aliveOnly && !n.alive) return false
+      if (aliveOnly && !isNodeAvailable(n)) return false
       if (!q) return true
       return (
         n.name.toLowerCase().includes(q) ||
@@ -124,7 +140,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
       })
       api
         .previewDraft(
-          { groupBy, groupType, template, ruleSetId: ruleSetID, members },
+          { groupBy, groupType, template, ruleSetId: ruleSetID, excludeIpv6Only, members },
           tab === 'yaml' ? 'mihomo' : 'text',
         )
         .then((res) => {
@@ -144,7 +160,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [tab, picked, groupBy, groupType, template, ruleSetID])
+  }, [tab, picked, groupBy, groupType, template, ruleSetID, excludeIpv6Only])
 
   function toggle(key: string) {
     setPicked((prev) => {
@@ -180,7 +196,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
     setPicked((prev) => {
       const next = new Set(prev)
       for (const n of filtered) {
-        if (!onlyAlive || n.alive) next.add(`${n.hostId}|${n.key}`)
+        if (!onlyAlive || isNodeAvailable(n)) next.add(`${n.hostId}|${n.key}`)
       }
       return next
     })
@@ -200,6 +216,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
         groupType,
         template,
         ruleSetId: ruleSetID,
+        excludeIpv6Only,
         members: [...picked].map((k) => {
           const [hostId, ...rest] = k.split('|')
           return { hostId, key: rest.join('|') }
@@ -216,6 +233,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
           groupType,
           template,
           ruleSetID,
+          excludeIpv6Only,
           members: [...picked].sort(),
         }),
       )
@@ -227,7 +245,7 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
     } finally {
       setBusy(false)
     }
-  }, [name, slug, groupBy, groupType, template, ruleSetID, picked, savedID, refresh, id, navigate, t])
+  }, [name, slug, groupBy, groupType, template, ruleSetID, excludeIpv6Only, picked, savedID, refresh, id, navigate, t])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -327,6 +345,27 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
             </select>
             <span className="hint">{t('套用后覆盖模板里的 rules，并合并 rule-providers。')}</span>
           </label>
+          <div className="field full field-check">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={excludeIpv6Only}
+                onChange={(e) => setExcludeIpv6Only(e.target.checked)}
+              />
+              <span>{t('排除仅 IPv6 的节点')}</span>
+            </label>
+            <span className="hint">
+              {t('生成订阅时跳过仅解析到 IPv6（无 IPv4）的节点；未探测节点的解析状态未知，勾选时也会一并排除。')}
+              {excludeIpv6Only && excludedSelectedCount > 0 && (
+                <>
+                  {' '}
+                  <strong className="is-warn">
+                    {t('当前已选节点中将排除 {{n}} 个（仅 IPv6 或未探测）。', { n: excludedSelectedCount })}
+                  </strong>
+                </>
+              )}
+            </span>
+          </div>
         </div>
         {showTemplate && (
           <label className="field">
@@ -380,6 +419,9 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
               <input type="checkbox" checked={aliveOnly} onChange={(e) => setAliveOnly(e.target.checked)} />
               {t('只看可用')}
             </label>
+            {hasProbedNodes && (
+              <span className="small muted picker-probe-note">{t('探测来自服务器视角，不代表你的网络')}</span>
+            )}
           </div>
 
           <div className="picker">
@@ -422,18 +464,54 @@ export function BundleEditor({ state, refresh, navigate, id }: Props) {
                     nodes.map((n) => {
                       const key = `${hostID}|${n.key}`
                       const isPicked = picked.has(key)
-                      const tone = delayTone(n.alive, n.delayMs)
+                      const health = nodeHealth(n)
+                      const tone = delayTone(health === 'ok', n.delayMs)
+                      const v6Only = isIPv6OnlyNode(n)
+                      const excluded = excludeIpv6Only && isPicked && isExcludedByIPv6Filter(n)
+                      const excludeReason = v6Only
+                        ? t('仅 IPv6 节点，已按规则排除')
+                        : t('尚未探测（解析状态未知），已按规则排除')
                       return (
-                        <label className="picker-row" data-selected={isPicked} key={key}>
+                        <label
+                          className="picker-row"
+                          data-selected={isPicked}
+                          data-excluded={excluded}
+                          title={excluded ? excludeReason : undefined}
+                          key={key}
+                        >
                           <input type="checkbox" checked={isPicked} onChange={() => toggle(key)} />
                           <span className="node-name" title={n.name}>
                             {n.name}
                           </span>
-                          <span className="proto-pill mono">{n.type}</span>
+                          <span className="picker-tags">
+                            <span className="proto-pill mono">{n.type}</span>
+                            {v6Only && <span className="badge badge-warn">IPv6</span>}
+                            {excluded && <span className="badge">{t('已排除')}</span>}
+                          </span>
                           <span
-                            className={`delay num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : tone === 'bad' ? ' is-bad' : ''}`}
+                            className={`delay num${
+                              health === 'ok'
+                                ? tone === 'ok'
+                                  ? ' is-good'
+                                  : tone === 'warn'
+                                    ? ' is-warn'
+                                    : ''
+                                : health === 'unverified'
+                                  ? ' is-warn'
+                                  : health === 'unreachable'
+                                    ? ' is-bad'
+                                    : ' muted'
+                            }`}
                           >
-                            {n.alive ? (n.delayMs ? `${n.delayMs} ms` : '—') : t('不可用')}
+                            {health === 'ok'
+                              ? n.delayMs
+                                ? `${n.delayMs} ms`
+                                : t('可用')
+                              : health === 'unverified'
+                                ? t('未验证')
+                                : health === 'pending'
+                                  ? t('未探测')
+                                  : t('不可达')}
                           </span>
                         </label>
                       )

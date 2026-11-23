@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api, type ProxyNode } from './api'
+import {
+  ago,
+  api,
+  isIPv6OnlyNode,
+  isProbedSource,
+  nodeHealth,
+  type ProxyNode,
+} from './api'
 import { Icon } from './icons'
 import { notify } from './ui'
 
@@ -457,6 +464,8 @@ function sourceTitle(source: string, t: (s: string) => string) {
       return t('来自本机 mihomo 的实时上报')
     case 'config':
       return t('从机器上的 hysteria / xray 配置读出')
+    case 'sub':
+      return t('从订阅源自动拉取')
     default:
       return t('在面板里手工填写')
   }
@@ -468,6 +477,42 @@ export function delayTone(alive: boolean, delayMs: number): 'ok' | 'warn' | 'bad
   if (delayMs < 100) return 'ok'
   if (delayMs > 250) return 'warn'
   return 'muted'
+}
+
+export function NodeStateBadge({ node }: { node: ProxyNode }) {
+  const { t } = useTranslation()
+  const health = nodeHealth(node)
+  const tone =
+    health === 'ok' ? 'ok' : health === 'unverified' ? 'warn' : health === 'unreachable' ? 'bad' : 'muted'
+  const label =
+    health === 'ok'
+      ? t('可用')
+      : health === 'unverified'
+        ? t('未验证')
+        : health === 'unreachable'
+          ? t('不可达')
+          : t('未探测')
+  const tipParts: string[] = []
+  if (isProbedSource(node.source)) {
+    if (health === 'unverified') {
+      tipParts.push(t('UDP 协议仅检查域名解析，无法验证实际连通性'))
+    }
+    if (node.probedAt) {
+      tipParts.push(t('最近探测 {{ago}}', { ago: ago(node.probedAt) }))
+    } else {
+      tipParts.push(t('尚未探测'))
+    }
+    if (node.probedAt) {
+      if (node.resolvedV4 && node.resolvedV6) tipParts.push('IPv4 + IPv6')
+      else if (node.resolvedV4) tipParts.push('IPv4')
+      else if (node.resolvedV6) tipParts.push(t('仅 IPv6'))
+    }
+  }
+  return (
+    <span className="status status-sm" data-tone={tone} title={tipParts.join(' · ') || undefined}>
+      {label}
+    </span>
+  )
 }
 
 export function NodeTable({
@@ -482,89 +527,110 @@ export function NodeTable({
   compact?: boolean
 }) {
   const { t } = useTranslation()
+  const hasProbed = nodes.some((n) => isProbedSource(n.source))
+  const latestProbe = nodes.reduce((m, n) => Math.max(m, n.probedAt ?? 0), 0)
   if (nodes.length === 0) {
     return <p className="small muted">{t('还没有节点。粘贴链接，或手工填一条。')}</p>
   }
   return (
-    <div className="table-wrap">
-      <table className={compact ? 'compact-table node-table' : 'node-table'}>
-        <thead>
-          <tr>
-            <th>{t('节点')}</th>
-            <th>{t('协议')}</th>
-            <th>{t('地址')}</th>
-            <th>{t('来源')}</th>
-            <th className="num">{t('延迟')}</th>
-            {(onEdit || onDelete) && <th aria-label={t('操作')} />}
-          </tr>
-        </thead>
-        <tbody>
-          {nodes.map((node) => {
-            const tone = delayTone(node.alive, node.delayMs)
-            return (
-              <tr key={node.key}>
-                <td>
-                  <span className="mono truncate node-cell-name" title={node.name}>
-                    {node.name}
-                  </span>
-                </td>
-                <td>
-                  <span className="proto-pill mono">{node.type}</span>
-                </td>
-                <td className="mono small muted">
-                  <span className="truncate node-cell-addr" title={`${node.server}:${node.port}`}>
-                    {node.server}:{node.port}
-                  </span>
-                </td>
-                <td>
-                  <SourceTag source={node.source} />
-                </td>
-                <td className="num">
-                  {node.alive ? (
-                    <span className={`delay-val num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : ''}`}>
-                      {node.delayMs ? `${node.delayMs} ms` : '—'}
+    <>
+      {hasProbed && (
+        <p className="probe-note small muted">
+          <span>{t('探测来自服务器视角，不代表你的网络')}</span>
+          {latestProbe > 0 && <span>· {t('最近探测 {{ago}}', { ago: ago(latestProbe) })}</span>}
+        </p>
+      )}
+      <div className="table-wrap">
+        <table className={compact ? 'compact-table node-table' : 'node-table'}>
+          <thead>
+            <tr>
+              <th>{t('节点')}</th>
+              <th>{t('协议')}</th>
+              <th>{t('地址')}</th>
+              <th>{t('状态')}</th>
+              <th>{t('来源')}</th>
+              <th className="num">{t('延迟')}</th>
+              {(onEdit || onDelete) && <th aria-label={t('操作')} />}
+            </tr>
+          </thead>
+          <tbody>
+            {nodes.map((node) => {
+              const health = nodeHealth(node)
+              const tone = delayTone(health === 'ok', node.delayMs)
+              const v6Only = isIPv6OnlyNode(node)
+              return (
+                <tr key={node.key}>
+                  <td>
+                    <span className="mono truncate node-cell-name" title={node.name}>
+                      {node.name}
                     </span>
-                  ) : (
-                    <span className="small is-bad">{t('不可用')}</span>
-                  )}
-                </td>
-                {(onEdit || onDelete) && (
-                  <td className="num">
-                    {node.source === 'manual' ? (
-                      <span className="row-actions row-actions-end">
-                        {onEdit && (
-                          <button
-                            className="icon small icon-btn"
-                            aria-label={t('编辑 {{name}}', { name: node.name })}
-                            title={t('编辑')}
-                            onClick={() => onEdit(node)}
-                          >
-                            <Icon name="pencil" size={14} />
-                          </button>
-                        )}
-                        {onDelete && (
-                          <button
-                            className="icon small icon-btn icon-danger"
-                            aria-label={t('删除 {{name}}', { name: node.name })}
-                            title={t('删除')}
-                            onClick={() => onDelete(node)}
-                          >
-                            <Icon name="trash" size={14} />
-                          </button>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="small muted" title={t('自动采集，不能在这里改')}>
-                        {t('自动')}
+                  </td>
+                  <td>
+                    <span className="proto-pill mono">{node.type}</span>
+                    {v6Only && (
+                      <span className="badge badge-warn badge-space" title={t('仅解析到 IPv6（AAAA），无 IPv4 记录')}>
+                        IPv6
                       </span>
                     )}
                   </td>
-                )}
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
+                  <td className="mono small muted">
+                    <span className="truncate node-cell-addr" title={`${node.server}:${node.port}`}>
+                      {node.server}:{node.port}
+                    </span>
+                  </td>
+                  <td>
+                    <NodeStateBadge node={node} />
+                  </td>
+                  <td>
+                    <SourceTag source={node.source} />
+                  </td>
+                  <td className="num">
+                    {health === 'ok' ? (
+                      <span className={`delay-val num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : ''}`}>
+                        {node.delayMs ? `${node.delayMs} ms` : '—'}
+                      </span>
+                    ) : (
+                      <span className="small muted">—</span>
+                    )}
+                  </td>
+                  {(onEdit || onDelete) && (
+                    <td className="num">
+                      {node.source === 'manual' ? (
+                        <span className="row-actions row-actions-end">
+                          {onEdit && (
+                            <button
+                              className="icon small icon-btn"
+                              aria-label={t('编辑 {{name}}', { name: node.name })}
+                              title={t('编辑')}
+                              onClick={() => onEdit(node)}
+                            >
+                              <Icon name="pencil" size={14} />
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button
+                              className="icon small icon-btn icon-danger"
+                              aria-label={t('删除 {{name}}', { name: node.name })}
+                              title={t('删除')}
+                              onClick={() => onDelete(node)}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="small muted" title={t('自动采集，不能在这里改')}>
+                          {t('自动')}
+                        </span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }

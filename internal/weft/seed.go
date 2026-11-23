@@ -76,6 +76,7 @@ func SeedDemo(st *Store) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
+	var staticUpdates []ProbeUpdate
 	for _, link := range []string{
 		"hy2://demo-berlin@203.0.113.24:36906?sni=www.bing.com&insecure=1#Berlin-Hy2",
 		"vless://11111111-2222-3333-4444-555555555555@203.0.113.24:8443?encryption=none" +
@@ -93,7 +94,15 @@ func SeedDemo(st *Store) (*Bundle, error) {
 		if err := st.UpsertNode(static.ID, n); err != nil {
 			return nil, err
 		}
+		res := ProbeResult{State: ProbeOK, DelayMS: 42, ResolvedV4: true, ProbedAt: now() - 180}
+		if isUDPNode(n) {
+			res = ProbeResult{State: ProbeUnverified, ResolvedV4: true, ProbedAt: now() - 180}
+		}
+		staticUpdates = append(staticUpdates, ProbeUpdate{HostID: static.ID, Key: n.Key, Result: res})
 		members = append(members, Member{HostID: static.ID, Key: n.Key})
+	}
+	if err := st.SaveProbeResults(staticUpdates); err != nil {
+		return nil, err
 	}
 
 	rules, err := st.CreateRuleSet(RuleSet{

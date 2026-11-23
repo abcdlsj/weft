@@ -52,6 +52,10 @@ func runServe(args []string) {
 	dbPath := fs.String("db", "weft.db", "sqlite database path")
 	demo := fs.Bool("demo", false, "seed a demo fleet and serve from memory")
 	password := fs.String("password", "", "set the panel password and exit the setup flow")
+	probeEnabled := fs.Bool("probe", true, "periodically probe subscription and manual nodes")
+	probeInterval := fs.Duration("probe-interval", weft.DefaultProbeInterval, "how often to probe nodes")
+	probeTimeout := fs.Duration("probe-timeout", weft.DefaultProbeTimeout, "per-node probe timeout")
+	probeConcurrency := fs.Int("probe-concurrency", weft.DefaultProbeConcurrency, "max concurrent node probes")
 	fs.Parse(args)
 
 	path := *dbPath
@@ -107,6 +111,14 @@ func runServe(args []string) {
 			}
 		}
 	}()
+
+	if *probeEnabled && !*demo {
+		go weft.RunProbeLoop(ctx, st, weft.ProbeConfig{
+			Interval:    *probeInterval,
+			Timeout:     *probeTimeout,
+			Concurrency: *probeConcurrency,
+		})
+	}
 
 	go func() {
 		<-ctx.Done()

@@ -18,8 +18,15 @@ export interface Host {
   createdAt: number
   nodeCount: number
   aliveCount: number
+  probeOkCount?: number
+  probeUnreachableCount?: number
+  probeUnverifiedCount?: number
+  lastProbedAt?: number
   status: HostStatus
 }
+
+export type ProbeState = '' | 'ok' | 'unreachable' | 'unverified'
+export type NodeHealth = 'ok' | 'unreachable' | 'unverified' | 'pending'
 
 export interface ProxyNode {
   hostId: string
@@ -31,10 +38,46 @@ export interface ProxyNode {
   port: number
   alive: boolean
   delayMs: number
+  probeState?: ProbeState
+  probedAt?: number
+  resolvedV4?: boolean
+  resolvedV6?: boolean
   region?: string
   source: 'agent' | 'config' | 'manual' | 'sub'
   raw?: Record<string, unknown>
   updatedAt: number
+}
+
+export function isProbedSource(source: ProxyNode['source']): boolean {
+  return source === 'sub' || source === 'manual'
+}
+
+export function nodeHealth(node: ProxyNode): NodeHealth {
+  if (isProbedSource(node.source)) {
+    if (node.probeState === 'ok') return 'ok'
+    if (node.probeState === 'unreachable') return 'unreachable'
+    if (node.probeState === 'unverified') return 'unverified'
+    return 'pending'
+  }
+  return node.alive ? 'ok' : 'unreachable'
+}
+
+export function isNodeAvailable(node: ProxyNode): boolean {
+  return nodeHealth(node) === 'ok'
+}
+
+export function isIPv6OnlyNode(node: ProxyNode): boolean {
+  if (isProbedSource(node.source)) {
+    return !!node.probedAt && !node.resolvedV4 && !!node.resolvedV6
+  }
+  return node.server.includes(':')
+}
+
+export function isExcludedByIPv6Filter(node: ProxyNode): boolean {
+  if (isProbedSource(node.source)) {
+    return !node.probedAt || (!node.resolvedV4 && !!node.resolvedV6)
+  }
+  return node.server.includes(':')
 }
 
 export interface Member {
@@ -50,6 +93,7 @@ export interface Bundle {
   groupType: 'url-test' | 'select' | 'fallback' | 'load-balance'
   template: string
   ruleSetId: string
+  excludeIpv6Only?: boolean
   createdAt: number
   members: Member[]
 }
@@ -113,6 +157,9 @@ export interface Stats {
   hostsOnline: number
   nodesTotal: number
   nodesAlive: number
+  nodesUnverified?: number
+  nodesUnreachable?: number
+  lastProbedAt?: number
   subHits: number
   lastUse: number
 }
@@ -288,6 +335,7 @@ export interface BundlePayload {
   groupType?: string
   template?: string
   ruleSetId?: string
+  excludeIpv6Only?: boolean
   members?: Member[]
 }
 

@@ -542,6 +542,37 @@ const en: Record<string, string> = {
   '延迟分布参考': 'Latency legend',
   '快（<100 ms）': 'Fast (<100 ms)',
   '常规（≥100 ms）': 'Normal (≥100 ms)',
+
+  // probe & ipv6 filter
+  '不可达': 'Unreachable',
+  '未验证': 'Unverified',
+  '未探测': 'Not probed',
+  '待探测': 'Pending',
+  '尚未探测': 'Not probed yet',
+  '最近探测': 'Last probed',
+  '最近探测 {{ago}}': 'Last probed {{ago}}',
+  '探测来自服务器视角，不代表你的网络': 'Probed from the server perspective, not your network',
+  'UDP 协议仅检查域名解析，无法验证实际连通性': 'UDP protocol: only DNS resolution is checked; reachability is unverified',
+  '从订阅源自动拉取': 'Pulled automatically from a subscription source',
+  '仅 IPv6': 'IPv6 only',
+  '仅解析到 IPv6（AAAA），无 IPv4 记录': 'Resolved to IPv6 (AAAA) only, no IPv4 record',
+  '{{ok}} 可用 · {{unverified}} 未验证 / {{total}} 总计': '{{ok}} ok · {{unverified}} unverified / {{total}} total',
+  '存活率 {{pct}}% · {{unverified}} 未验证': '{{pct}}% available · {{unverified}} unverified',
+  '{{ok}} 可用 · {{unverified}} 未验证 · {{unreachable}} 不可达': '{{ok}} ok · {{unverified}} unverified · {{unreachable}} unreachable',
+  '{{total}} 节点 · 尚未探测': '{{total}} nodes · not probed yet',
+  '可用 {{n}}': '{{n}} ok',
+  '未验证 {{n}}': '{{n}} unverified',
+  '不可达 {{n}}': '{{n}} unreachable',
+  '待探测 {{n}}': '{{n}} pending',
+  '排除仅 IPv6': 'No IPv6-only',
+  '排除仅 IPv6 的节点': 'Exclude IPv6-only nodes',
+  '生成订阅时跳过仅解析到 IPv6（无 IPv4）的节点；未探测节点的解析状态未知，勾选时也会一并排除。':
+    'Skip nodes that resolve only to IPv6 (no IPv4) when generating subscriptions. Never-probed nodes have unknown DNS state and are also excluded while checked.',
+  '当前已选节点中将排除 {{n}} 个（仅 IPv6 或未探测）。':
+    '{{n}} selected nodes will be excluded (IPv6-only or not probed yet).',
+  '仅 IPv6 节点，已按规则排除': 'IPv6-only node, excluded by bundle setting',
+  '尚未探测（解析状态未知），已按规则排除': 'Not probed yet (DNS unknown), excluded by bundle setting',
+  '已排除': 'Excluded',
 }
 
 const stored = localStorage.getItem('weft-locale')

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -70,10 +71,46 @@ func namespaced(raw json.RawMessage, hostName, nodeName, region string) (bundleN
 	}, true
 }
 
+// FilterBundleNodes applies bundle-level node filters before rendering a
+// subscription. With ExcludeIPv6Only disabled (the default) all nodes pass
+// through unchanged.
+func FilterBundleNodes(b Bundle, nodes []Node) []Node {
+	if !b.ExcludeIPv6Only {
+		return nodes
+	}
+	out := make([]Node, 0, len(nodes))
+	for _, n := range nodes {
+		if isIPv6OnlyExcluded(n) {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// isIPv6OnlyExcluded reports whether a node should be skipped when the bundle
+// excludes IPv6-only nodes. Subscription/manual nodes rely on server probe DNS
+// results (never-probed nodes are treated as unknown and excluded too); agent
+// nodes are not probed by the server and are excluded only for literal IPv6.
+func isIPv6OnlyExcluded(n Node) bool {
+	if n.Source == NodeAgent || n.Source == NodeConfig {
+		host := strings.Trim(strings.TrimSpace(n.Server), "[]")
+		if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+			return true
+		}
+		return false
+	}
+	if n.ProbedAt == 0 {
+		return true
+	}
+	return !n.ResolvedV4 && n.ResolvedV6
+}
+
 // BuildMihomoYAML renders a full mihomo config for the bundle. The template is
 // edited as a YAML node tree so its key order and comments-of-shape survive.
 // An optional rule set replaces the template's rules and merges its providers.
 func BuildMihomoYAML(b Bundle, hosts []Host, nodes []Node, ruleSets ...*RuleSet) ([]byte, error) {
+	nodes = FilterBundleNodes(b, nodes)
 	hostNames := map[string]string{}
 	for _, h := range hosts {
 		hostNames[h.ID] = h.Name

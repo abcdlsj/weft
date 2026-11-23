@@ -27,13 +27,14 @@ type backupRuleSet struct {
 }
 
 type backupBundle struct {
-	Name        string         `json:"name"`
-	Slug        string         `json:"slug"`
-	GroupBy     string         `json:"groupBy"`
-	GroupType   string         `json:"groupType"`
-	Template    string         `json:"template"`
-	RuleSetName string         `json:"ruleSetName"`
-	Members     []backupMember `json:"members"`
+	Name            string         `json:"name"`
+	Slug            string         `json:"slug"`
+	GroupBy         string         `json:"groupBy"`
+	GroupType       string         `json:"groupType"`
+	Template        string         `json:"template"`
+	RuleSetName     string         `json:"ruleSetName"`
+	ExcludeIPv6Only bool           `json:"excludeIpv6Only,omitempty"`
+	Members         []backupMember `json:"members"`
 }
 
 type backupMember struct {
@@ -73,7 +74,7 @@ func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	for _, b := range bundles {
 		bb := backupBundle{
 			Name: b.Name, Slug: b.Slug, GroupBy: b.GroupBy, GroupType: b.GroupType,
-			Template: b.Template, RuleSetName: names[b.RuleSetID],
+			Template: b.Template, RuleSetName: names[b.RuleSetID], ExcludeIPv6Only: b.ExcludeIPv6Only,
 		}
 		for _, m := range b.Members {
 			bb.Members = append(bb.Members, backupMember{HostName: hostName[m.HostID], Key: m.Key})
@@ -177,7 +178,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		bundle := Bundle{
 			Name: bb.Name, Slug: bb.Slug, GroupBy: bb.GroupBy, GroupType: bb.GroupType,
-			Template: bb.Template, RuleSetID: ruleID[bb.RuleSetName],
+			Template: bb.Template, RuleSetID: ruleID[bb.RuleSetName], ExcludeIPv6Only: bb.ExcludeIPv6Only,
 		}
 		normalizeBundle(&bundle)
 		if old, ok := existingBundles[bb.Slug]; ok {

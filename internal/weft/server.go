@@ -515,15 +515,26 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 }
 
 func computeStats(hosts []hostView, nodes []Node, subs []Subscription) map[string]any {
-	online, alive := 0, 0
+	online, alive, unverified, unreachable := 0, 0, 0, 0
+	var lastProbedAt int64
 	for _, h := range hosts {
 		if h.Status == "online" {
 			online++
 		}
 	}
 	for _, n := range nodes {
-		if n.Alive {
+		if nodeAvailable(n) {
 			alive++
+		} else if isProbedSource(n.Source) {
+			switch n.ProbeState {
+			case ProbeUnverified:
+				unverified++
+			case ProbeUnreachable:
+				unreachable++
+			}
+		}
+		if n.ProbedAt > lastProbedAt {
+			lastProbedAt = n.ProbedAt
 		}
 	}
 	var hits int64
@@ -535,12 +546,15 @@ func computeStats(hosts []hostView, nodes []Node, subs []Subscription) map[strin
 		}
 	}
 	return map[string]any{
-		"hostsTotal":  len(hosts),
-		"hostsOnline": online,
-		"nodesTotal":  len(nodes),
-		"nodesAlive":  alive,
-		"subHits":     hits,
-		"lastUse":     lastUse,
+		"hostsTotal":       len(hosts),
+		"hostsOnline":      online,
+		"nodesTotal":       len(nodes),
+		"nodesAlive":       alive,
+		"nodesUnverified":  unverified,
+		"nodesUnreachable": unreachable,
+		"lastProbedAt":     lastProbedAt,
+		"subHits":          hits,
+		"lastUse":          lastUse,
 	}
 }
 
@@ -867,13 +881,14 @@ func (s *Server) handleParseNode(w http.ResponseWriter, r *http.Request) {
 // ---------- bundles api ----------
 
 type bundlePayload struct {
-	Name      string   `json:"name"`
-	Slug      string   `json:"slug"`
-	GroupBy   string   `json:"groupBy"`
-	GroupType string   `json:"groupType"`
-	Template  string   `json:"template"`
-	RuleSetID *string  `json:"ruleSetId"`
-	Members   []Member `json:"members"`
+	Name            string   `json:"name"`
+	Slug            string   `json:"slug"`
+	GroupBy         string   `json:"groupBy"`
+	GroupType       string   `json:"groupType"`
+	Template        string   `json:"template"`
+	RuleSetID       *string  `json:"ruleSetId"`
+	ExcludeIPv6Only bool     `json:"excludeIpv6Only"`
+	Members         []Member `json:"members"`
 }
 
 func (s *Server) handleCreateBundle(w http.ResponseWriter, r *http.Request) {
@@ -897,7 +912,7 @@ func (s *Server) handleCreateBundle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b := Bundle{Name: body.Name, Slug: body.Slug, GroupBy: body.GroupBy, GroupType: body.GroupType,
-		Template: body.Template, RuleSetID: ruleSetID}
+		Template: body.Template, RuleSetID: ruleSetID, ExcludeIPv6Only: body.ExcludeIPv6Only}
 	normalizeBundle(&b)
 	if b.Slug == "" {
 		b.Slug = slugify(b.Name)
@@ -942,6 +957,7 @@ func (s *Server) handleUpdateBundle(w http.ResponseWriter, r *http.Request) {
 	b.GroupBy = body.GroupBy
 	b.GroupType = body.GroupType
 	b.Template = body.Template
+	b.ExcludeIPv6Only = body.ExcludeIPv6Only
 	normalizeBundle(b)
 	if b.Slug == "" {
 		b.Slug = slugify(b.Name)
@@ -980,7 +996,11 @@ func (s *Server) handleDeleteBundle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) bundleNodes(b *Bundle) ([]Host, []Node, error) {
-	return s.nodesForMembers(b.Members)
+	hosts, nodes, err := s.nodesForMembers(b.Members)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hosts, FilterBundleNodes(*b, nodes), nil
 }
 
 func (s *Server) nodesForMembers(members []Member) ([]Host, []Node, error) {
@@ -1029,12 +1049,12 @@ func (s *Server) handlePreviewDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := Bundle{Name: body.Name, Slug: body.Slug, GroupBy: body.GroupBy, GroupType: body.GroupType,
-		Template: body.Template, Members: body.Members}
+		Template: body.Template, ExcludeIPv6Only: body.ExcludeIPv6Only, Members: body.Members}
 	if body.RuleSetID != nil {
 		b.RuleSetID = *body.RuleSetID
 	}
 	normalizeBundle(&b)
-	hosts, nodes, err := s.nodesForMembers(b.Members)
+	hosts, nodes, err := s.bundleNodes(&b)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

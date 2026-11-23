@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   port INTEGER NOT NULL,
   alive INTEGER NOT NULL DEFAULT 0,
   delay_ms INTEGER NOT NULL DEFAULT 0,
+  probe_state TEXT NOT NULL DEFAULT '',
+  probed_at INTEGER NOT NULL DEFAULT 0,
+  resolved_v4 INTEGER NOT NULL DEFAULT 0,
+  resolved_v6 INTEGER NOT NULL DEFAULT 0,
   raw TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (host_id, key)
@@ -71,6 +75,7 @@ CREATE TABLE IF NOT EXISTS bundles (
   group_type TEXT NOT NULL DEFAULT 'url-test',
   template TEXT NOT NULL DEFAULT '',
   rule_set_id TEXT NOT NULL DEFAULT '',
+  exclude_ipv6_only INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS bundle_members (
@@ -130,20 +135,67 @@ CREATE TABLE IF NOT EXISTS settings (
   v TEXT NOT NULL
 );
 `)
-	// older databases predate these columns; adding them is idempotent enough
-	s.db.Exec(`ALTER TABLE reports ADD COLUMN avg_delay INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE hosts ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent'`)
-	s.db.Exec(`ALTER TABLE nodes ADD COLUMN source TEXT NOT NULL DEFAULT 'agent'`)
-	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN access_key TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN bearer TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE bundles ADD COLUMN rule_set_id TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE hosts ADD COLUMN sub_url TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE hosts ADD COLUMN sub_error TEXT NOT NULL DEFAULT ''`)
-	s.db.Exec(`ALTER TABLE hosts ADD COLUMN sub_checked_at INTEGER NOT NULL DEFAULT 0`)
-	s.db.Exec(`ALTER TABLE nodes ADD COLUMN region TEXT NOT NULL DEFAULT ''`)
+	if err != nil {
+		return err
+	}
+	// older databases predate these columns; check pragma table_info before adding
+	// so every migration step stays strictly idempotent without dropping data.
+	migrations := []struct {
+		table, column, def string
+	}{
+		{"reports", "avg_delay", "INTEGER NOT NULL DEFAULT 0"},
+		{"hosts", "kind", "TEXT NOT NULL DEFAULT 'agent'"},
+		{"hosts", "sub_url", "TEXT NOT NULL DEFAULT ''"},
+		{"hosts", "sub_error", "TEXT NOT NULL DEFAULT ''"},
+		{"hosts", "sub_checked_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"nodes", "source", "TEXT NOT NULL DEFAULT 'agent'"},
+		{"nodes", "region", "TEXT NOT NULL DEFAULT ''"},
+		{"nodes", "probe_state", "TEXT NOT NULL DEFAULT ''"},
+		{"nodes", "probed_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"nodes", "resolved_v4", "INTEGER NOT NULL DEFAULT 0"},
+		{"nodes", "resolved_v6", "INTEGER NOT NULL DEFAULT 0"},
+		{"subscriptions", "access_key", "TEXT NOT NULL DEFAULT ''"},
+		{"subscriptions", "bearer", "TEXT NOT NULL DEFAULT ''"},
+		{"bundles", "rule_set_id", "TEXT NOT NULL DEFAULT ''"},
+		{"bundles", "exclude_ipv6_only", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, m := range migrations {
+		if err := s.ensureColumn(m.table, m.column, m.def); err != nil {
+			return err
+		}
+	}
 	// every link gets a key, including ones created before keys existed
-	s.db.Exec(`UPDATE subscriptions SET access_key = lower(hex(randomblob(8))) WHERE access_key = ''`)
-	s.db.Exec(`UPDATE subscriptions SET bearer = lower(hex(randomblob(24))) WHERE bearer = ''`)
+	if _, err := s.db.Exec(`UPDATE subscriptions SET access_key = lower(hex(randomblob(8))) WHERE access_key = ''`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`UPDATE subscriptions SET bearer = lower(hex(randomblob(24))) WHERE bearer = ''`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureColumn(table, column, def string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
 	return err
 }
 
@@ -168,20 +220,24 @@ func now() int64 { return time.Now().Unix() }
 // which is what a bare hysteria2 / xray box needs, from subscription sources
 // (`sub`) that weft pulls and flattens on its own schedule.
 type Host struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Token         string `json:"token,omitempty"`
-	Kind          string `json:"kind"`
-	Controller    string `json:"controller"`
-	SubURL        string `json:"subUrl"`
-	SubError      string `json:"subError"`
-	SubCheckedAt  int64  `json:"subCheckedAt"`
-	AgentVersion  string `json:"agentVersion"`
-	MihomoVersion string `json:"mihomoVersion"`
-	LastSeen      int64  `json:"lastSeen"`
-	CreatedAt     int64  `json:"createdAt"`
-	NodeCount     int    `json:"nodeCount"`
-	AliveCount    int    `json:"aliveCount"`
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	Token                 string `json:"token,omitempty"`
+	Kind                  string `json:"kind"`
+	Controller            string `json:"controller"`
+	SubURL                string `json:"subUrl"`
+	SubError              string `json:"subError"`
+	SubCheckedAt          int64  `json:"subCheckedAt"`
+	AgentVersion          string `json:"agentVersion"`
+	MihomoVersion         string `json:"mihomoVersion"`
+	LastSeen              int64  `json:"lastSeen"`
+	CreatedAt             int64  `json:"createdAt"`
+	NodeCount             int    `json:"nodeCount"`
+	AliveCount            int    `json:"aliveCount"`
+	ProbeOkCount          int    `json:"probeOkCount"`
+	ProbeUnreachableCount int    `json:"probeUnreachableCount"`
+	ProbeUnverifiedCount  int    `json:"probeUnverifiedCount"`
+	LastProbedAt          int64  `json:"lastProbedAt"`
 }
 
 const (
@@ -241,9 +297,20 @@ func (s *Store) ListHosts() ([]Host, error) {
 	rows, err := s.db.Query(`
 SELECT h.id, h.name, h.kind, h.controller, h.sub_url, h.sub_error, h.sub_checked_at,
        h.agent_version, h.mihomo_version, h.last_seen, h.created_at,
-       COALESCE(n.total,0), COALESCE(n.alive,0)
+       COALESCE(n.total,0), COALESCE(n.alive,0),
+       COALESCE(n.probe_ok,0), COALESCE(n.probe_unreachable,0), COALESCE(n.probe_unverified,0),
+       COALESCE(n.last_probed_at,0)
 FROM hosts h
-LEFT JOIN (SELECT host_id, COUNT(*) total, SUM(alive) alive FROM nodes GROUP BY host_id) n ON n.host_id = h.id
+LEFT JOIN (
+  SELECT host_id,
+         COUNT(*) total,
+         SUM(CASE WHEN source IN ('sub','manual') THEN CASE WHEN probe_state='ok' THEN 1 ELSE 0 END ELSE alive END) alive,
+         SUM(CASE WHEN source IN ('sub','manual') AND probe_state='ok' THEN 1 ELSE 0 END) probe_ok,
+         SUM(CASE WHEN source IN ('sub','manual') AND probe_state='unreachable' THEN 1 ELSE 0 END) probe_unreachable,
+         SUM(CASE WHEN source IN ('sub','manual') AND probe_state='unverified' THEN 1 ELSE 0 END) probe_unverified,
+         MAX(CASE WHEN source IN ('sub','manual') THEN probed_at ELSE 0 END) last_probed_at
+  FROM nodes GROUP BY host_id
+) n ON n.host_id = h.id
 ORDER BY h.created_at`)
 	if err != nil {
 		return nil, err
@@ -253,7 +320,8 @@ ORDER BY h.created_at`)
 	for rows.Next() {
 		var h Host
 		if err := rows.Scan(&h.ID, &h.Name, &h.Kind, &h.Controller, &h.SubURL, &h.SubError, &h.SubCheckedAt,
-			&h.AgentVersion, &h.MihomoVersion, &h.LastSeen, &h.CreatedAt, &h.NodeCount, &h.AliveCount); err != nil {
+			&h.AgentVersion, &h.MihomoVersion, &h.LastSeen, &h.CreatedAt, &h.NodeCount, &h.AliveCount,
+			&h.ProbeOkCount, &h.ProbeUnreachableCount, &h.ProbeUnverifiedCount, &h.LastProbedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, h)
@@ -313,19 +381,23 @@ func (s *Store) DeleteHost(id string) error {
 // ---------- nodes ----------
 
 type Node struct {
-	HostID    string          `json:"hostId"`
-	HostName  string          `json:"hostName"`
-	Key       string          `json:"key"`
-	Name      string          `json:"name"`
-	Type      string          `json:"type"`
-	Server    string          `json:"server"`
-	Port      int             `json:"port"`
-	Alive     bool            `json:"alive"`
-	DelayMS   int             `json:"delayMs"`
-	Region    string          `json:"region"` // 香港 / 新加坡 / … from the source
-	Source    string          `json:"source"` // agent | config | manual | sub
-	Raw       json.RawMessage `json:"raw,omitempty"`
-	UpdatedAt int64           `json:"updatedAt"`
+	HostID     string          `json:"hostId"`
+	HostName   string          `json:"hostName"`
+	Key        string          `json:"key"`
+	Name       string          `json:"name"`
+	Type       string          `json:"type"`
+	Server     string          `json:"server"`
+	Port       int             `json:"port"`
+	Alive      bool            `json:"alive"`
+	DelayMS    int             `json:"delayMs"`
+	ProbeState string          `json:"probeState,omitempty"` // "" | ok | unreachable | unverified
+	ProbedAt   int64           `json:"probedAt,omitempty"`
+	ResolvedV4 bool            `json:"resolvedV4,omitempty"`
+	ResolvedV6 bool            `json:"resolvedV6,omitempty"`
+	Region     string          `json:"region"` // 香港 / 新加坡 / … from the source
+	Source     string          `json:"source"` // agent | config | manual | sub
+	Raw        json.RawMessage `json:"raw,omitempty"`
+	UpdatedAt  int64           `json:"updatedAt"`
 }
 
 const (
@@ -383,34 +455,71 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?)`, hostID, n.Key, n.Name, n.Type, n.Server, n.Port
 
 // ReplaceSourceNodes swaps the whole inventory of a subscription source. Hand
 // entered nodes survive, and so does the report history, so the overview still
-// shows the source's node count over time.
+// shows the source's node count over time. Existing probe results are carried
+// forward for nodes whose endpoint has not changed.
 func (s *Store) ReplaceSourceNodes(hostID string, nodes []Node) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
+	type prevProbe struct {
+		typ, server, state string
+		port, delay        int
+		probedAt           int64
+		v4, v6             int
+	}
+	prev := map[string]prevProbe{}
+	if rows, err := tx.Query(`SELECT key, type, server, port, delay_ms, probe_state, probed_at, resolved_v4, resolved_v6
+FROM nodes WHERE host_id=? AND source<>?`, hostID, NodeManual); err == nil {
+		for rows.Next() {
+			var k string
+			var p prevProbe
+			if rows.Scan(&k, &p.typ, &p.server, &p.port, &p.delay, &p.state, &p.probedAt, &p.v4, &p.v6) == nil {
+				prev[k] = p
+			}
+		}
+		rows.Close()
+	}
+
 	if _, err := tx.Exec(`DELETE FROM nodes WHERE host_id=? AND source<>?`, hostID, NodeManual); err != nil {
 		return err
 	}
 	ts := now()
+	okCount, delaySum, delayCount := 0, 0, 0
 	for _, n := range nodes {
 		raw := n.Raw
 		if len(raw) == 0 {
 			raw = json.RawMessage(`{}`)
 		}
-		if _, err := tx.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,region,source,raw,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+		probeState, probedAt, v4, v6, delayMS := n.ProbeState, n.ProbedAt, boolInt(n.ResolvedV4), boolInt(n.ResolvedV6), n.DelayMS
+		if old, ok := prev[n.Key]; ok && old.typ == n.Type && old.server == n.Server && old.port == n.Port && probedAt == 0 {
+			probeState, probedAt, v4, v6, delayMS = old.state, old.probedAt, old.v4, old.v6, old.delay
+		}
+		if _, err := tx.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,probe_state,probed_at,resolved_v4,resolved_v6,region,source,raw,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(host_id,key) DO UPDATE SET
   name=excluded.name, type=excluded.type, server=excluded.server, port=excluded.port,
   region=excluded.region, source=excluded.source, raw=excluded.raw, updated_at=excluded.updated_at`,
-			hostID, n.Key, n.Name, n.Type, n.Server, n.Port, boolInt(n.Alive), n.DelayMS,
-			n.Region, NodeSub, string(raw), ts); err != nil {
+			hostID, n.Key, n.Name, n.Type, n.Server, n.Port, boolInt(n.Alive), delayMS,
+			probeState, probedAt, v4, v6, n.Region, NodeSub, string(raw), ts); err != nil {
 			return err
 		}
+		if probeState == ProbeOK {
+			okCount++
+			if delayMS > 0 {
+				delaySum += delayMS
+				delayCount++
+			}
+		}
+	}
+	avgDelay := 0
+	if delayCount > 0 {
+		avgDelay = delaySum / delayCount
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count,avg_delay) VALUES (?,?,?,?,?)`,
-		hostID, ts, len(nodes), 0, 0); err != nil {
+		hostID, ts, len(nodes), okCount, avgDelay); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM reports WHERE host_id=? AND at < ?`, hostID, ts-86400); err != nil {
@@ -419,8 +528,55 @@ ON CONFLICT(host_id,key) DO UPDATE SET
 	return tx.Commit()
 }
 
+// SaveProbeResults writes server-side probe outcomes back to nodes (only for
+// sub/manual nodes, leaving agent nodes and `alive` untouched) and appends a
+// report row per affected host.
+func (s *Store) SaveProbeResults(updates []ProbeUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	hosts := map[string]bool{}
+	for _, u := range updates {
+		hosts[u.HostID] = true
+		if _, err := tx.Exec(`UPDATE nodes
+SET probe_state=?, probed_at=?, resolved_v4=?, resolved_v6=?, delay_ms=?
+WHERE host_id=? AND key=? AND source IN (?,?)`,
+			u.Result.State, u.Result.ProbedAt, boolInt(u.Result.ResolvedV4), boolInt(u.Result.ResolvedV6),
+			u.Result.DelayMS, u.HostID, u.Key, NodeSub, NodeManual); err != nil {
+			return err
+		}
+	}
+
+	ts := now()
+	for hostID := range hosts {
+		var nodeCount, aliveCount int
+		var avgDelay float64
+		if err := tx.QueryRow(`SELECT COUNT(*),
+COALESCE(SUM(CASE WHEN source IN ('sub','manual') THEN CASE WHEN probe_state='ok' THEN 1 ELSE 0 END ELSE alive END), 0),
+COALESCE(AVG(CASE WHEN (CASE WHEN source IN ('sub','manual') THEN probe_state='ok' ELSE alive=1 END) AND delay_ms > 0 THEN delay_ms END), 0)
+FROM nodes WHERE host_id=?`, hostID).Scan(&nodeCount, &aliveCount, &avgDelay); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO reports (host_id,at,node_count,alive_count,avg_delay) VALUES (?,?,?,?,?)`,
+			hostID, ts, nodeCount, aliveCount, int(avgDelay)); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM reports WHERE host_id=? AND at < ?`, hostID, ts-86400); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ListNodes(hostID string) ([]Node, error) {
-	q := `SELECT n.host_id, h.name, n.key, n.name, n.type, n.server, n.port, n.alive, n.delay_ms, n.region, n.source, n.raw, n.updated_at
+	q := `SELECT n.host_id, h.name, n.key, n.name, n.type, n.server, n.port, n.alive, n.delay_ms,
+       n.probe_state, n.probed_at, n.resolved_v4, n.resolved_v6, n.region, n.source, n.raw, n.updated_at
 FROM nodes n JOIN hosts h ON h.id = n.host_id`
 	args := []any{}
 	if hostID != "" {
@@ -436,13 +592,16 @@ FROM nodes n JOIN hosts h ON h.id = n.host_id`
 	var out []Node
 	for rows.Next() {
 		var n Node
-		var alive int
+		var alive, v4, v6 int
 		var raw string
 		if err := rows.Scan(&n.HostID, &n.HostName, &n.Key, &n.Name, &n.Type, &n.Server,
-			&n.Port, &alive, &n.DelayMS, &n.Region, &n.Source, &raw, &n.UpdatedAt); err != nil {
+			&n.Port, &alive, &n.DelayMS, &n.ProbeState, &n.ProbedAt, &v4, &v6,
+			&n.Region, &n.Source, &raw, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		n.Alive = alive == 1
+		n.ResolvedV4 = v4 == 1
+		n.ResolvedV6 = v6 == 1
 		n.Raw = json.RawMessage(raw)
 		out = append(out, n)
 	}
@@ -451,11 +610,13 @@ FROM nodes n JOIN hosts h ON h.id = n.host_id`
 
 func (s *Store) NodeByKey(hostID, key string) (*Node, error) {
 	var n Node
-	var alive int
+	var alive, v4, v6 int
 	var raw string
-	err := s.db.QueryRow(`SELECT host_id, key, name, type, server, port, alive, delay_ms, region, source, raw, updated_at
+	err := s.db.QueryRow(`SELECT host_id, key, name, type, server, port, alive, delay_ms,
+       probe_state, probed_at, resolved_v4, resolved_v6, region, source, raw, updated_at
 FROM nodes WHERE host_id=? AND key=?`, hostID, key).Scan(&n.HostID, &n.Key, &n.Name, &n.Type,
-		&n.Server, &n.Port, &alive, &n.DelayMS, &n.Region, &n.Source, &raw, &n.UpdatedAt)
+		&n.Server, &n.Port, &alive, &n.DelayMS, &n.ProbeState, &n.ProbedAt, &v4, &v6,
+		&n.Region, &n.Source, &raw, &n.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -463,6 +624,8 @@ FROM nodes WHERE host_id=? AND key=?`, hostID, key).Scan(&n.HostID, &n.Key, &n.N
 		return nil, err
 	}
 	n.Alive = alive == 1
+	n.ResolvedV4 = v4 == 1
+	n.ResolvedV6 = v6 == 1
 	n.Raw = json.RawMessage(raw)
 	return &n, nil
 }
@@ -475,12 +638,17 @@ func (s *Store) UpsertNode(hostID string, n Node) error {
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
-	_, err := s.db.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,region,source,raw,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO nodes (host_id,key,name,type,server,port,alive,delay_ms,probe_state,probed_at,resolved_v4,resolved_v6,region,source,raw,updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(host_id,key) DO UPDATE SET
   name=excluded.name, type=excluded.type, server=excluded.server, port=excluded.port,
-  source=excluded.source, raw=excluded.raw, updated_at=excluded.updated_at`,
+  source=excluded.source, raw=excluded.raw, updated_at=excluded.updated_at,
+  probe_state=CASE WHEN nodes.server=excluded.server AND nodes.port=excluded.port AND nodes.type=excluded.type THEN nodes.probe_state ELSE '' END,
+  probed_at=CASE WHEN nodes.server=excluded.server AND nodes.port=excluded.port AND nodes.type=excluded.type THEN nodes.probed_at ELSE 0 END,
+  resolved_v4=CASE WHEN nodes.server=excluded.server AND nodes.port=excluded.port AND nodes.type=excluded.type THEN nodes.resolved_v4 ELSE 0 END,
+  resolved_v6=CASE WHEN nodes.server=excluded.server AND nodes.port=excluded.port AND nodes.type=excluded.type THEN nodes.resolved_v6 ELSE 0 END`,
 		hostID, n.Key, n.Name, n.Type, n.Server, n.Port, boolInt(n.Alive), n.DelayMS,
+		n.ProbeState, n.ProbedAt, boolInt(n.ResolvedV4), boolInt(n.ResolvedV6),
 		n.Region, NodeManual, string(raw), now())
 	return err
 }
@@ -497,15 +665,16 @@ func (s *Store) DeleteNode(hostID, key string) error {
 // ---------- bundles ----------
 
 type Bundle struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Slug      string   `json:"slug"`
-	GroupBy   string   `json:"groupBy"`   // host | type | flat
-	GroupType string   `json:"groupType"` // url-test | select | fallback
-	Template  string   `json:"template"`
-	RuleSetID string   `json:"ruleSetId"`
-	CreatedAt int64    `json:"createdAt"`
-	Members   []Member `json:"members,omitempty"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Slug            string   `json:"slug"`
+	GroupBy         string   `json:"groupBy"`   // host | type | flat
+	GroupType       string   `json:"groupType"` // url-test | select | fallback
+	Template        string   `json:"template"`
+	RuleSetID       string   `json:"ruleSetId"`
+	ExcludeIPv6Only bool     `json:"excludeIpv6Only"`
+	CreatedAt       int64    `json:"createdAt"`
+	Members         []Member `json:"members,omitempty"`
 }
 
 type Member struct {
@@ -523,8 +692,8 @@ func (s *Store) CreateBundle(b Bundle) (*Bundle, error) {
 		b.Slug = b.ID
 	}
 	b.CreatedAt = now()
-	_, err := s.db.Exec(`INSERT INTO bundles (id,name,slug,group_by,group_type,template,rule_set_id,created_at)
-VALUES (?,?,?,?,?,?,?,?)`, b.ID, b.Name, b.Slug, b.GroupBy, b.GroupType, b.Template, b.RuleSetID, b.CreatedAt)
+	_, err := s.db.Exec(`INSERT INTO bundles (id,name,slug,group_by,group_type,template,rule_set_id,exclude_ipv6_only,created_at)
+VALUES (?,?,?,?,?,?,?,?,?)`, b.ID, b.Name, b.Slug, b.GroupBy, b.GroupType, b.Template, b.RuleSetID, boolInt(b.ExcludeIPv6Only), b.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +701,7 @@ VALUES (?,?,?,?,?,?,?,?)`, b.ID, b.Name, b.Slug, b.GroupBy, b.GroupType, b.Templ
 }
 
 func (s *Store) ListBundles() ([]Bundle, error) {
-	rows, err := s.db.Query(`SELECT id,name,slug,group_by,group_type,template,rule_set_id,created_at FROM bundles ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id,name,slug,group_by,group_type,template,rule_set_id,exclude_ipv6_only,created_at FROM bundles ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -540,9 +709,11 @@ func (s *Store) ListBundles() ([]Bundle, error) {
 	var out []Bundle
 	for rows.Next() {
 		var b Bundle
-		if err := rows.Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.RuleSetID, &b.CreatedAt); err != nil {
+		var exclV6 int
+		if err := rows.Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.RuleSetID, &exclV6, &b.CreatedAt); err != nil {
 			return nil, err
 		}
+		b.ExcludeIPv6Only = exclV6 == 1
 		out = append(out, b)
 	}
 	for i := range out {
@@ -557,21 +728,23 @@ func (s *Store) ListBundles() ([]Bundle, error) {
 
 func (s *Store) Bundle(id string) (*Bundle, error) {
 	var b Bundle
-	err := s.db.QueryRow(`SELECT id,name,slug,group_by,group_type,template,rule_set_id,created_at FROM bundles WHERE id=?`, id).
-		Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.RuleSetID, &b.CreatedAt)
+	var exclV6 int
+	err := s.db.QueryRow(`SELECT id,name,slug,group_by,group_type,template,rule_set_id,exclude_ipv6_only,created_at FROM bundles WHERE id=?`, id).
+		Scan(&b.ID, &b.Name, &b.Slug, &b.GroupBy, &b.GroupType, &b.Template, &b.RuleSetID, &exclV6, &b.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	b.ExcludeIPv6Only = exclV6 == 1
 	b.Members, err = s.Members(id)
 	return &b, err
 }
 
 func (s *Store) UpdateBundle(b Bundle) error {
-	_, err := s.db.Exec(`UPDATE bundles SET name=?,slug=?,group_by=?,group_type=?,template=?,rule_set_id=? WHERE id=?`,
-		b.Name, slugify(b.Slug), b.GroupBy, b.GroupType, b.Template, b.RuleSetID, b.ID)
+	_, err := s.db.Exec(`UPDATE bundles SET name=?,slug=?,group_by=?,group_type=?,template=?,rule_set_id=?,exclude_ipv6_only=? WHERE id=?`,
+		b.Name, slugify(b.Slug), b.GroupBy, b.GroupType, b.Template, b.RuleSetID, boolInt(b.ExcludeIPv6Only), b.ID)
 	return err
 }
 

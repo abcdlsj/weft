@@ -1,6 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ago, clock, type ProxyNode, type SeriesPoint } from '../api'
+import {
+  ago,
+  clock,
+  isNodeAvailable,
+  isProbedSource,
+  nodeHealth,
+  type Host,
+  type ProxyNode,
+  type SeriesPoint,
+} from '../api'
 import { Icon } from '../icons'
 import { NodeThreads } from '../weave'
 import { Copy, Empty, StatusPill } from '../ui'
@@ -25,6 +34,8 @@ export function Overview({ state, refresh, navigate }: PageProps) {
 
   const hostPct = stats.hostsTotal ? Math.round((stats.hostsOnline / stats.hostsTotal) * 100) : 0
   const alivePct = stats.nodesTotal ? Math.round((stats.nodesAlive / stats.nodesTotal) * 100) : 0
+  const hasProbedNodes = state.nodes.some((n) => isProbedSource(n.source))
+  const unverifiedTotal = stats.nodesUnverified ?? 0
   const agentCmd = `weft agent --server ${state.publicBase} --token <host token> --controller http://127.0.0.1:9090 --secret <mihomo secret>`
 
   async function onRefresh() {
@@ -87,7 +98,14 @@ export function Overview({ state, refresh, navigate }: PageProps) {
           <div className="stat-meter">
             <span style={{ width: `${alivePct}%` }} data-tone={alivePct >= 80 ? 'ok' : alivePct >= 50 ? 'warn' : 'bad'} />
           </div>
-          <span className="stat-note">{t('存活率 {{pct}}%', { pct: alivePct })}</span>
+          <span className="stat-note">
+            {unverifiedTotal > 0
+              ? t('存活率 {{pct}}% · {{unverified}} 未验证', { pct: alivePct, unverified: unverifiedTotal })
+              : t('存活率 {{pct}}%', { pct: alivePct })}
+          </span>
+          {hasProbedNodes && (
+            <span className="stat-note stat-note-sub">{t('探测来自服务器视角，不代表你的网络')}</span>
+          )}
         </button>
 
         <button type="button" className="stat-card panel" onClick={() => navigate('/subscriptions')}>
@@ -148,13 +166,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
                     >
                       <td>
                         <span className="cell-main">{h.name}</span>
-                        <span className="cell-sub">
-                          {t('{{alive}}/{{total}} 节点 · {{ago}}', {
-                            alive: h.aliveCount,
-                            total: h.nodeCount,
-                            ago: ago(h.lastSeen),
-                          })}
-                        </span>
+                        <span className="cell-sub">{overviewHostSub(h, t)}</span>
                       </td>
                       <td>
                         <NodeThreads nodes={nodesByHost.get(h.id) ?? []} />
@@ -250,6 +262,25 @@ export function Overview({ state, refresh, navigate }: PageProps) {
       </details>
     </>
   )
+}
+
+function overviewHostSub(h: Host, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (h.kind === 'sub' || h.kind === 'static') {
+    if (!h.lastProbedAt) {
+      return t('{{total}} 节点 · 尚未探测', { total: h.nodeCount })
+    }
+    const counts = t('{{ok}} 可用 · {{unverified}} 未验证 · {{unreachable}} 不可达', {
+      ok: h.probeOkCount ?? 0,
+      unverified: h.probeUnverifiedCount ?? 0,
+      unreachable: h.probeUnreachableCount ?? 0,
+    })
+    return `${counts} · ${t('最近探测 {{ago}}', { ago: ago(h.lastProbedAt) })}`
+  }
+  return t('{{alive}}/{{total}} 节点 · {{ago}}', {
+    alive: h.aliveCount,
+    total: h.nodeCount,
+    ago: ago(h.lastSeen),
+  })
 }
 
 type Metric = 'delay' | 'alive'
@@ -458,8 +489,11 @@ const BIN = 50
 
 function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
   const { t } = useTranslation()
-  const alive = nodes.filter((n) => n.alive).map((n) => n.delayMs).sort((a, b) => a - b)
-  const down = nodes.length - alive.length
+  const alive = nodes
+    .filter((n) => isNodeAvailable(n) && n.delayMs > 0)
+    .map((n) => n.delayMs)
+    .sort((a, b) => a - b)
+  const down = nodes.filter((n) => nodeHealth(n) === 'unreachable').length
   if (nodes.length === 0) {
     return (
       <section className="panel">
