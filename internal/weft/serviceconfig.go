@@ -370,6 +370,12 @@ func ParseXrayConfig(path, publicHost string) ([]Node, error) {
 				m["flow"] = c.Flow
 				m["tls"] = security == "reality" || security == "tls"
 				m["servername"] = sni
+				if security == "reality" {
+					// mihomo 从 1.19 起对 REALITY 要求显式声明 uTLS 指纹，缺了就
+					// 直接报 "REALITY is based on uTLS, please set a client-fingerprint"
+					// 并且拒连，节点在客户端里永远是死的。
+					m["client-fingerprint"] = "chrome"
+				}
 				if c.Flow == "" {
 					delete(m, "flow")
 				}

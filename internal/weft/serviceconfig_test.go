@@ -186,6 +186,10 @@ func TestParseXrayConfig(t *testing.T) {
 	if raw["flow"] != "xtls-rprx-vision" || raw["tls"] != true || raw["servername"] != "www.bing.com" {
 		t.Fatalf("vless fields: %v", raw)
 	}
+	// mihomo 拒绝没有 uTLS 指纹的 REALITY 节点，agent 必须把这一项带上。
+	if raw["client-fingerprint"] != "chrome" {
+		t.Fatalf("reality nodes need client-fingerprint: %v", raw)
+	}
 	opts, ok := raw["reality-opts"].(map[string]any)
 	if !ok || opts["short-id"] != "f8a64b66" {
 		t.Fatalf("reality-opts: %v", raw)
