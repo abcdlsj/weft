@@ -190,7 +190,7 @@ export function Rules({ state, refresh, theme }: PageProps) {
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="rules-table">
               <thead>
                 <tr>
                   <th>{t('名称')}</th>
@@ -230,6 +230,17 @@ export function Rules({ state, refresh, theme }: PageProps) {
                         )}
                       </div>
                       <span className="cell-sub">{rs.description || rs.source || '—'}</span>
+                      <div className="mobile-row-meta">
+                        <span className="small muted num">
+                          {t('{{rules}} 规则 · {{providers}} 提供者', {
+                            rules: rs.ruleCount ?? 0,
+                            providers: rs.providerCount ?? 0,
+                          })}
+                        </span>
+                        <span className="small muted num">
+                          {rs.usedBy ? t('{{n}} 个编排', { n: rs.usedBy }) : t('未使用')} · {ago(rs.updatedAt)}
+                        </span>
+                      </div>
                     </td>
                     <td className="num">{rs.ruleCount ?? 0}</td>
                     <td className="num">{rs.providerCount ?? 0}</td>
@@ -447,7 +458,7 @@ export function Rules({ state, refresh, theme }: PageProps) {
             </div>
           )}
           {editing.source && !editing.source.startsWith('preset:') && (
-            <p className="small muted">
+            <p className="small muted break-all">
               {t('规则集来源')}：<span className="mono">{editing.source}</span>
             </p>
           )}

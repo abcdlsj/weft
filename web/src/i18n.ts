@@ -573,6 +573,13 @@ const en: Record<string, string> = {
   '仅 IPv6 节点，已按规则排除': 'IPv6-only node, excluded by bundle setting',
   '尚未探测（解析状态未知），已按规则排除': 'Not probed yet (DNS unknown), excluded by bundle setting',
   '已排除': 'Excluded',
+
+  // mobile & safari PWA
+  '主屏应用': 'Home Screen App',
+  '当前正以主屏应用模式运行，状态栏与安全区已自动适配。': 'Running as a standalone Home Screen app with status bar and safe-area support.',
+  '在 Safari 点击底部「共享」→「添加到主屏幕」，即可全屏作为应用使用。': 'In Safari, tap Share → Add to Home Screen for a full-screen app experience.',
+  '{{nodes}} 节点 · {{subs}} 订阅': '{{nodes}} nodes · {{subs}} subs',
+  '{{rules}} 规则 · {{providers}} 提供者': '{{rules}} rules · {{providers}} providers',
 }
 
 const stored = localStorage.getItem('weft-locale')

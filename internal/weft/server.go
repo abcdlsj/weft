@@ -1346,6 +1346,13 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	if path != "" {
 		if f, err := dist.Open(path); err == nil {
 			f.Close()
+			switch path {
+			case "manifest.webmanifest":
+				w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+				w.Header().Set("Cache-Control", "no-cache")
+			case "sw.js", "theme-init.js":
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			http.FileServer(http.FS(dist)).ServeHTTP(w, r)
 			return
 		}

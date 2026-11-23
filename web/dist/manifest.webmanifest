@@ -1,13 +1,14 @@
 {
+  "id": "/",
   "name": "Weft — 多机订阅聚合面板",
   "short_name": "Weft",
   "description": "把多台 mihomo 织成一条订阅",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#f6f4ef",
-  "theme_color": "#ffffff",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#faf9f7",
+  "theme_color": "#faf9f7",
   "lang": "zh-CN",
   "icons": [
     {

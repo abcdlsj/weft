@@ -21,6 +21,15 @@ export function Settings({ state, refresh, theme, setTheme }: PageProps) {
 
   const usingBuiltin = !state.defaultTemplate
   const mismatch = confirmNext.length > 0 && next !== confirmNext
+  const isStandalone =
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true)
+  const isIOSSafari =
+    typeof navigator !== 'undefined' &&
+    /iP(hone|od|ad)/.test(navigator.userAgent) &&
+    /Safari/.test(navigator.userAgent) &&
+    !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent)
 
   async function changePassword() {
     if (next !== confirmNext) {
@@ -95,7 +104,10 @@ export function Settings({ state, refresh, theme, setTheme }: PageProps) {
         <section className="panel">
           <div className="section-head">
             <h2>{t('外观与实例')}</h2>
-            <span className="badge">{state.demo ? t('演示数据（内存库）') : t('自托管')}</span>
+            <div className="actions">
+              {isStandalone && <span className="badge badge-accent">{t('主屏应用')}</span>}
+              <span className="badge">{state.demo ? t('演示数据（内存库）') : t('自托管')}</span>
+            </div>
           </div>
 
           <div className="setting-group">
@@ -112,7 +124,13 @@ export function Settings({ state, refresh, theme, setTheme }: PageProps) {
                 </button>
               ))}
             </div>
-            <p className="small muted">{t('可安装到主屏，深色模式跟随系统。')}</p>
+            <p className="small muted">
+              {isStandalone
+                ? t('当前正以主屏应用模式运行，状态栏与安全区已自动适配。')
+                : isIOSSafari
+                  ? t('在 Safari 点击底部「共享」→「添加到主屏幕」，即可全屏作为应用使用。')
+                  : t('可安装到主屏，深色模式跟随系统。')}
+            </p>
           </div>
 
           <div className="setting-group">

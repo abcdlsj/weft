@@ -1,10 +1,12 @@
 // weft service worker: the shell works offline, the data never comes from cache.
-const CACHE = 'weft-v5'
+const CACHE = 'weft-v6'
 const SHELL = [
   '/',
   '/manifest.webmanifest',
+  '/theme-init.js',
   '/icons/mark.svg',
   '/icons/icon-192.png',
+  '/icons/apple-touch-icon.png',
 ]
 
 self.addEventListener('install', (event) => {

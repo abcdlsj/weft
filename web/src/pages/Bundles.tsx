@@ -65,7 +65,7 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="bundles-table">
               <thead>
                 <tr>
                   <th>{t('编排')}</th>
@@ -107,6 +107,14 @@ export function Bundles({ state, refresh, navigate }: PageProps) {
                       <td>
                         <span className="cell-main">{b.name}</span>
                         <span className="cell-sub mono">/{b.slug}</span>
+                        <div className="mobile-row-meta">
+                          <span className="badge mono">{b.groupType}</span>
+                          {ruleName && <span className="badge">{ruleName}</span>}
+                          {b.excludeIpv6Only && <span className="badge">{t('排除仅 IPv6')}</span>}
+                          <span className="small muted num">
+                            {t('{{nodes}} 节点 · {{subs}} 订阅', { nodes: b.members.length, subs })}
+                          </span>
+                        </div>
                       </td>
                       <td>
                         <WeaveStrip segments={segments} />

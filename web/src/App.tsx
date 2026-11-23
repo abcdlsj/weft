@@ -23,11 +23,11 @@ export interface PageProps {
   setTheme: (t: Theme) => void
 }
 
-const nav: { path: string; label: string; icon: IconName }[] = [
+const nav: { path: string; label: string; enShort?: string; icon: IconName }[] = [
   { path: '/', label: '概览', icon: 'overview' },
   { path: '/hosts', label: '机器', icon: 'hosts' },
   { path: '/bundles', label: '编排', icon: 'layers' },
-  { path: '/subscriptions', label: '订阅', icon: 'link' },
+  { path: '/subscriptions', label: '订阅', enShort: 'Subs', icon: 'link' },
   { path: '/rules', label: '规则', icon: 'rules' },
   { path: '/settings', label: '设置', icon: 'gear' },
 ]
@@ -58,7 +58,7 @@ function useLocation() {
 }
 
 export default function App() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [me, setMe] = useState<Me | null>(null)
   const [state, setState] = useState<FleetState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -121,8 +121,13 @@ export default function App() {
   useEffect(() => {
     if (!me?.authenticated) return
     poll.current = window.setInterval(refresh, 15000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       if (poll.current) window.clearInterval(poll.current)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [me?.authenticated, refresh])
 
@@ -241,6 +246,17 @@ export default function App() {
 
             <button
               type="button"
+              className="icon top-icon-btn mobile-refresh-btn"
+              onClick={() => void refresh()}
+              aria-label={t('刷新')}
+              title={t('刷新')}
+            >
+              <span className="live-dot mobile-live-dot" data-warn={offlineCount > 0} />
+              <Icon name="refresh" size={16} className={refreshing ? 'spin' : undefined} />
+            </button>
+
+            <button
+              type="button"
               className="icon top-icon-btn"
               onClick={cycleTheme}
               aria-label={`${t('切换主题')} (${themeLabel})`}
@@ -276,6 +292,39 @@ export default function App() {
           {page}
         </Suspense>
       </main>
+
+      <nav className="mobile-nav" aria-label="Main">
+        {nav.map((item) => {
+          const active =
+            item.path === '/' ? path === '/' : path === item.path || path.startsWith(item.path + '/')
+          const mobileLabel =
+            item.enShort && i18n.language === 'en' ? item.enShort : t(item.label)
+          return (
+            <a
+              key={item.path}
+              href={item.path}
+              aria-current={active ? 'page' : undefined}
+              onClick={(e) => {
+                e.preventDefault()
+                navigate(item.path)
+              }}
+            >
+              <span className="mobile-nav-icon">
+                <Icon name={item.icon} size={19} />
+                {item.path === '/hosts' && offlineCount > 0 && (
+                  <span
+                    className="mobile-nav-badge num"
+                    aria-label={t('{{n}} 台离线或异常', { n: offlineCount })}
+                  >
+                    {offlineCount > 9 ? '9+' : offlineCount}
+                  </span>
+                )}
+              </span>
+              <span className="mobile-nav-label">{mobileLabel}</span>
+            </a>
+          )
+        })}
+      </nav>
 
       {updateReady && (
         <div className="update" role="status">
@@ -313,6 +362,26 @@ function agoShort(ts: number) {
   return `${Math.floor(s / 3600)}h`
 }
 
+function syncThemeColor(resolved: 'light' | 'dark') {
+  const color = resolved === 'dark' ? '#141416' : '#faf9f7'
+  const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+  if (metas.length === 0) {
+    const meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    meta.content = color
+    document.head.appendChild(meta)
+    return
+  }
+  metas.forEach((meta, i) => {
+    if (i === 0) {
+      meta.removeAttribute('media')
+      meta.setAttribute('content', color)
+    } else {
+      meta.remove()
+    }
+  })
+}
+
 function useTheme() {
   const stored = (localStorage.getItem('weft-theme') as Theme) || 'auto'
   const [theme, setTheme] = useState<Theme>(stored)
@@ -321,6 +390,7 @@ function useTheme() {
     const apply = () => {
       const resolved = theme === 'auto' ? (media.matches ? 'dark' : 'light') : theme
       document.documentElement.dataset.theme = resolved
+      syncThemeColor(resolved)
     }
     apply()
     media.addEventListener('change', apply)

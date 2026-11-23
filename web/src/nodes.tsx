@@ -559,13 +559,13 @@ export function NodeTable({
               const tone = delayTone(health === 'ok', node.delayMs)
               const v6Only = isIPv6OnlyNode(node)
               return (
-                <tr key={node.key}>
-                  <td>
+                <tr key={node.key} className="node-row">
+                  <td className="node-td-name">
                     <span className="mono truncate node-cell-name" title={node.name}>
                       {node.name}
                     </span>
                   </td>
-                  <td>
+                  <td className="node-td-proto">
                     <span className="proto-pill mono">{node.type}</span>
                     {v6Only && (
                       <span className="badge badge-warn badge-space" title={t('仅解析到 IPv6（AAAA），无 IPv4 记录')}>
@@ -573,18 +573,18 @@ export function NodeTable({
                       </span>
                     )}
                   </td>
-                  <td className="mono small muted">
+                  <td className="node-td-addr mono small muted">
                     <span className="truncate node-cell-addr" title={`${node.server}:${node.port}`}>
                       {node.server}:{node.port}
                     </span>
                   </td>
-                  <td>
+                  <td className="node-td-state">
                     <NodeStateBadge node={node} />
                   </td>
-                  <td>
+                  <td className="node-td-source">
                     <SourceTag source={node.source} />
                   </td>
-                  <td className="num">
+                  <td className="node-td-delay num">
                     {health === 'ok' ? (
                       <span className={`delay-val num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : ''}`}>
                         {node.delayMs ? `${node.delayMs} ms` : '—'}
@@ -594,7 +594,7 @@ export function NodeTable({
                     )}
                   </td>
                   {(onEdit || onDelete) && (
-                    <td className="num">
+                    <td className="node-td-actions num">
                       {node.source === 'manual' ? (
                         <span className="row-actions row-actions-end">
                           {onEdit && (

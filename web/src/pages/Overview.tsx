@@ -149,7 +149,7 @@ export function Overview({ state, refresh, navigate }: PageProps) {
             </div>
           ) : (
             <div className="table-wrap">
-              <table className="compact-table">
+              <table className="mini-hosts compact-table">
                 <tbody>
                   {sortedHosts.slice(0, 5).map((h) => (
                     <tr
@@ -363,10 +363,6 @@ function LineChart({
     return <div className="chart-empty">{t('还没有足够的上报数据')}</div>
   }
   const H = W < 600 ? 184 : 236
-  const left = 36
-  const right = 10
-  const top = 12
-  const bottom = 26
   const values = series.map(value)
   const lo = Math.min(...values)
   const hi = Math.max(...values)
@@ -378,6 +374,12 @@ function LineChart({
   const ticks: number[] = []
   for (let tick = min; tick <= max + 1e-9; tick += step) ticks.push(Math.round(tick * 10) / 10)
 
+  const maxTickChars = Math.max(...ticks.map((tk) => String(tk).length), 2)
+  const left = Math.max(36, maxTickChars * 7 + 14)
+  const right = 12
+  const top = 12
+  const bottom = 26
+
   const x = (i: number) => left + (i / (series.length - 1)) * (W - left - right)
   const y = (v: number) => top + (1 - (v - min) / (max - min)) * (H - top - bottom)
   const line = series.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(value(p)).toFixed(1)}`).join(' ')
@@ -386,11 +388,17 @@ function LineChart({
   const hours: number[] = []
   const t0 = series[0].at
   const t1 = series[series.length - 1].at
-  const every = W < 600 ? 7200 : 3600
+  const every = W < 440 ? 10800 : W < 640 ? 7200 : 3600
   for (let ts = Math.ceil(t0 / every) * every; ts <= t1; ts += every) hours.push(ts)
   const xt = (ts: number) => left + ((ts - t0) / (t1 - t0)) * (W - left - right)
   const capacity = metric === 'alive' ? series[series.length - 1].nodes : null
   const h = hover === null ? null : series[hover]
+
+  const updateHover = (clientX: number, rect: DOMRect) => {
+    const px = ((clientX - rect.left) / rect.width) * W
+    const i = Math.round(((px - left) / (W - left - right)) * (series.length - 1))
+    setHover(Math.min(series.length - 1, Math.max(0, i)))
+  }
 
   return (
     <figure className="chart chart-wrap" ref={box}>
@@ -400,12 +408,12 @@ function LineChart({
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-label={t('{{metric}}曲线', { metric: metric === 'delay' ? t('平均延迟') : t('可用节点') })}
-        onMouseLeave={() => setHover(null)}
-        onMouseMove={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          const px = ((e.clientX - r.left) / r.width) * W
-          const i = Math.round(((px - left) / (W - left - right)) * (series.length - 1))
-          setHover(Math.min(series.length - 1, Math.max(0, i)))
+        onPointerLeave={() => setHover(null)}
+        onPointerDown={(e) => updateHover(e.clientX, e.currentTarget.getBoundingClientRect())}
+        onPointerMove={(e) => {
+          if (e.pointerType === 'mouse' || e.buttons > 0) {
+            updateHover(e.clientX, e.currentTarget.getBoundingClientRect())
+          }
         }}
       >
         <defs>
@@ -438,17 +446,15 @@ function LineChart({
         )}
         <path d={area} fill={`url(#${gradId})`} />
         <path d={line} className="chart__line" />
-        {hours.map((ts, i) => (
-          <text
-            key={ts}
-            x={xt(ts)}
-            y={H - 6}
-            className="chart__tick"
-            textAnchor={i === 0 && xt(ts) - left < 20 ? 'start' : 'middle'}
-          >
-            {clock(ts)}
-          </text>
-        ))}
+        {hours.map((ts) => {
+          const px = xt(ts)
+          const anchor = px - left < 22 ? 'start' : W - right - px < 22 ? 'end' : 'middle'
+          return (
+            <text key={ts} x={px} y={H - 6} className="chart__tick" textAnchor={anchor}>
+              {clock(ts)}
+            </text>
+          )
+        })}
         {h && hover !== null ? (
           <g>
             <line x1={x(hover)} x2={x(hover)} y1={top} y2={H - bottom} className="chart__cursor" />
@@ -465,10 +471,13 @@ function LineChart({
       {h && hover !== null && (
         <div
           className="chart-tip"
-          style={{
-            left: `${(x(hover) / W) * 100}%`,
-            transform: `translateX(${hover > series.length * 0.65 ? '-106%' : hover < series.length * 0.15 ? '6%' : '-50%'})`,
-          }}
+          style={
+            hover > series.length * 0.65
+              ? { right: `${Math.max(2, ((W - x(hover)) / W) * 100)}%` }
+              : hover < series.length * 0.2
+                ? { left: `${Math.max(2, (x(hover) / W) * 100)}%` }
+                : { left: `${(x(hover) / W) * 100}%`, transform: 'translateX(-50%)' }
+          }
         >
           <span className="chart-tip-time num">{clock(h.at)}</span>
           <b className="num">
@@ -585,9 +594,11 @@ function DelayPanel({ nodes }: { nodes: ProxyNode[] }) {
             ))}
           </div>
           <div className="dist-axis num">
-            {bins.map((b) => (
-              <span key={b.from}>{b.from}</span>
-            ))}
+            {bins.map((b, i) => {
+              const stride = bins.length > 10 ? 3 : bins.length > 6 ? 2 : 1
+              const show = i % stride === 0
+              return <span key={b.from}>{show ? b.from : ''}</span>
+            })}
             <span>{top}</span>
           </div>
         </div>

@@ -61,6 +61,12 @@ export function Copy({
         } catch {
           const el = document.createElement('textarea')
           el.value = value
+          el.setAttribute('readonly', '')
+          el.style.position = 'fixed'
+          el.style.top = '-9999px'
+          el.style.left = '-9999px'
+          el.style.opacity = '0'
+          el.style.fontSize = '16px'
           document.body.appendChild(el)
           el.select()
           document.execCommand('copy')
@@ -96,6 +102,8 @@ export function StatusPill({ status }: { status: string }) {
   )
 }
 
+let openDialogCount = 0
+
 /** A native dialog: the browser owns the backdrop, focus and Escape. */
 function Dialog({
   title,
@@ -119,16 +127,30 @@ function Dialog({
   useEffect(() => {
     const el = ref.current
     if (!el || el.open) return
+    openDialogCount += 1
+    document.documentElement.classList.add('dialog-open')
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches
     const focusFirst = () => {
+      if (coarse) {
+        el.focus()
+        return
+      }
       const first = el.querySelector<HTMLElement>(
         'input:not([type="hidden"]):not([type="file"]):not([readonly]), select, textarea',
       )
       ;(first ?? el).focus()
     }
+    const releaseScroll = () => {
+      openDialogCount = Math.max(0, openDialogCount - 1)
+      if (openDialogCount === 0) document.documentElement.classList.remove('dialog-open')
+    }
     if (typeof el.showModal === 'function') {
       el.showModal()
       focusFirst()
-      return
+      return () => {
+        if (el.open) el.close()
+        releaseScroll()
+      }
     }
     el.setAttribute('open', '')
     el.classList.add('fallback')
@@ -137,7 +159,10 @@ function Dialog({
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      releaseScroll()
+    }
   }, [])
   const classes = [variant === 'drawer' ? 'drawer' : '', wide ? 'wide' : ''].filter(Boolean).join(' ')
   return (

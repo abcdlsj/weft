@@ -340,6 +340,48 @@ export function Hosts({ state, refresh, navigate, search }: PageProps) {
                                 {t('上次拉取失败：{{error}}', { error: h.subError })}
                               </span>
                             )}
+                            <div className="mobile-row-meta">
+                              {isProbeHost ? (
+                                h.nodeCount === 0 ? (
+                                  <span className="small muted">0 {t('节点')}</span>
+                                ) : h.lastProbedAt ? (
+                                  <span className="probe-chips">
+                                    <span className="probe-chip" data-tone="ok">
+                                      {t('可用 {{n}}', { n: okCount })}
+                                    </span>
+                                    {unverifiedCount > 0 && (
+                                      <span className="probe-chip" data-tone="warn">
+                                        {t('未验证 {{n}}', { n: unverifiedCount })}
+                                      </span>
+                                    )}
+                                    {unreachableCount > 0 && (
+                                      <span className="probe-chip" data-tone="bad">
+                                        {t('不可达 {{n}}', { n: unreachableCount })}
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="probe-chip" data-tone="muted">
+                                    {t('待探测 {{n}}', { n: h.nodeCount })}
+                                  </span>
+                                )
+                              ) : (
+                                <span className="small muted num">
+                                  {t('{{alive}}/{{total}} 节点 · {{ago}}', {
+                                    alive: h.aliveCount,
+                                    total: h.nodeCount,
+                                    ago: ago(h.lastSeen),
+                                  })}
+                                </span>
+                              )}
+                              {avg > 0 && (
+                                <span
+                                  className={`small num${tone === 'ok' ? ' is-good' : tone === 'warn' ? ' is-warn' : ' muted'}`}
+                                >
+                                  {avg} ms
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td>
                             <StatusPill status={h.status} />
