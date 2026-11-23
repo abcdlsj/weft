@@ -2493,6 +2493,12 @@ body.auth {
   gap: 8px;
 }
 
+.sub-urls {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .sub-url {
   display: flex;
   align-items: center;
@@ -2502,6 +2508,18 @@ body.auth {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-subtle);
+}
+
+.sub-urls .sub-url {
+  margin-top: 0;
+}
+
+.sub-url-tag {
+  flex-shrink: 0;
+  min-width: 102px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .sub-url code {
@@ -2892,6 +2910,10 @@ body.auth {
 
 .qr {
   text-align: center;
+}
+
+.qr-tabs {
+  margin: 0 auto 14px;
 }
 
 .qr img {

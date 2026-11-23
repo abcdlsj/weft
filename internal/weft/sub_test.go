@@ -1,7 +1,9 @@
 package weft
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -78,6 +80,301 @@ func TestBuildLinksNamespacesNodes(t *testing.T) {
 	if !strings.Contains(joined, "hk-01%2FA") {
 		t.Fatalf("link is not namespaced to its host:\n%s", joined)
 	}
+}
+
+func TestNodeURIProtocols(t *testing.T) {
+	t.Run("vless reality", func(t *testing.T) {
+		raw := map[string]any{
+			"type":               "vless",
+			"server":             "203.0.113.24",
+			"port":               float64(8443),
+			"uuid":               "86c211bf-1693-4f6f-a061-71780d87e179",
+			"flow":               "xtls-rprx-vision",
+			"tls":                true,
+			"servername":         "www.bing.com",
+			"client-fingerprint": "chrome",
+			"network":            "tcp",
+			"reality-opts": map[string]any{
+				"public-key": "RgDO6nczQXgj_D-VGus4e3pZHL4bIwFA7fHXocnW9QI",
+				"short-id":   "f8a64b66",
+			},
+		}
+		uri := NodeURI(raw, "berlin-05/Reality")
+		u, err := url.Parse(uri)
+		if err != nil {
+			t.Fatalf("invalid uri %q: %v", uri, err)
+		}
+		if u.Scheme != "vless" || u.User.Username() != "86c211bf-1693-4f6f-a061-71780d87e179" {
+			t.Fatalf("unexpected scheme/user: %s", uri)
+		}
+		q := u.Query()
+		want := map[string]string{
+			"encryption": "none",
+			"security":   "reality",
+			"pbk":        "RgDO6nczQXgj_D-VGus4e3pZHL4bIwFA7fHXocnW9QI",
+			"sid":        "f8a64b66",
+			"fp":         "chrome",
+			"sni":        "www.bing.com",
+			"flow":       "xtls-rprx-vision",
+			"type":       "tcp",
+		}
+		for k, v := range want {
+			if got := q.Get(k); got != v {
+				t.Errorf("%s = %q, want %q (uri=%s)", k, got, v, uri)
+			}
+		}
+		// Round-trip through ParseProxyLink keeps Reality parameters intact.
+		parsed, err := ParseProxyLink(uri)
+		if err != nil {
+			t.Fatalf("round-trip ParseProxyLink failed: %v", err)
+		}
+		opts, _ := parsed["reality-opts"].(map[string]any)
+		if opts["public-key"] != want["pbk"] || opts["short-id"] != want["sid"] || parsed["client-fingerprint"] != "chrome" {
+			t.Fatalf("round-trip lost reality opts: %v", parsed)
+		}
+	})
+
+	t.Run("vless reality defaults fp to chrome when missing", func(t *testing.T) {
+		raw := map[string]any{
+			"type":       "vless",
+			"server":     "203.0.113.24",
+			"port":       443,
+			"uuid":       "11111111-2222-3333-4444-555555555555",
+			"tls":        true,
+			"servername": "www.apple.com",
+			"reality-opts": map[string]any{
+				"public-key": "testpubkey",
+			},
+		}
+		uri := NodeURI(raw, "box/R")
+		u, err := url.Parse(uri)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := u.Query()
+		if q.Get("security") != "reality" || q.Get("pbk") != "testpubkey" || q.Get("fp") != "chrome" {
+			t.Fatalf("unexpected query %v in %s", q, uri)
+		}
+	})
+
+	t.Run("vless tls ws insecure alpn", func(t *testing.T) {
+		raw := map[string]any{
+			"type":             "vless",
+			"server":           "203.0.113.25",
+			"port":             443,
+			"uuid":             "11111111-2222-3333-4444-555555555555",
+			"tls":              true,
+			"servername":       "cdn.example.com",
+			"skip-cert-verify": true,
+			"alpn":             []any{"h2", "http/1.1"},
+			"network":          "ws",
+			"ws-opts": map[string]any{
+				"path":    "/vless",
+				"headers": map[string]any{"Host": "ws.example.com"},
+			},
+		}
+		u, err := url.Parse(NodeURI(raw, "box/WS"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := u.Query()
+		if q.Get("security") != "tls" || q.Get("type") != "ws" || q.Get("path") != "/vless" ||
+			q.Get("host") != "ws.example.com" || q.Get("allowInsecure") != "1" || q.Get("alpn") != "h2,http/1.1" {
+			t.Fatalf("unexpected vless ws query: %v", q)
+		}
+	})
+
+	t.Run("hysteria2 obfs insecure", func(t *testing.T) {
+		raw := map[string]any{
+			"type":             "hysteria2",
+			"server":           "94.159.107.211",
+			"port":             float64(36906),
+			"password":         "secret-pass",
+			"sni":              "www.bing.com",
+			"obfs":             "salamander",
+			"obfs-password":    "obfs-secret",
+			"skip-cert-verify": true,
+			"alpn":             []any{"h3"},
+			"fingerprint":      "sha256:abcdef",
+			"ports":            "20000-30000",
+		}
+		uri := NodeURI(raw, "berlin-05/Hy2")
+		u, err := url.Parse(uri)
+		if err != nil {
+			t.Fatalf("invalid uri %q: %v", uri, err)
+		}
+		if u.Scheme != "hysteria2" || u.User.Username() != "secret-pass" {
+			t.Fatalf("unexpected scheme/user: %s", uri)
+		}
+		q := u.Query()
+		want := map[string]string{
+			"sni":           "www.bing.com",
+			"obfs":          "salamander",
+			"obfs-password": "obfs-secret",
+			"insecure":      "1",
+			"alpn":          "h3",
+			"pinSHA256":     "sha256:abcdef",
+			"mport":         "20000-30000",
+		}
+		for k, v := range want {
+			if got := q.Get(k); got != v {
+				t.Errorf("%s = %q, want %q (uri=%s)", k, got, v, uri)
+			}
+		}
+		parsed, err := ParseProxyLink(uri)
+		if err != nil {
+			t.Fatalf("round-trip ParseProxyLink failed: %v", err)
+		}
+		if parsed["obfs"] != "salamander" || parsed["obfs-password"] != "obfs-secret" || parsed["skip-cert-verify"] != true {
+			t.Fatalf("round-trip lost hy2 fields: %v", parsed)
+		}
+	})
+
+	t.Run("trojan ws and grpc", func(t *testing.T) {
+		ws := map[string]any{
+			"type":               "trojan",
+			"server":             "203.0.113.30",
+			"port":               443,
+			"password":           "tr-pass",
+			"sni":                "tr.example.com",
+			"skip-cert-verify":   true,
+			"alpn":               []string{"h2"},
+			"client-fingerprint": "safari",
+			"network":            "ws",
+			"ws-opts": map[string]any{
+				"path":    "/tr",
+				"headers": map[string]any{"Host": "cdn.example.com"},
+			},
+		}
+		u, err := url.Parse(NodeURI(ws, "hk/TrojanWS"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := u.Query()
+		if q.Get("sni") != "tr.example.com" || q.Get("allowInsecure") != "1" || q.Get("type") != "ws" ||
+			q.Get("path") != "/tr" || q.Get("host") != "cdn.example.com" || q.Get("alpn") != "h2" || q.Get("fp") != "safari" {
+			t.Fatalf("unexpected trojan ws query: %v", q)
+		}
+
+		grpc := map[string]any{
+			"type":      "trojan",
+			"server":    "203.0.113.31",
+			"port":      443,
+			"password":  "tr-pass",
+			"sni":       "grpc.example.com",
+			"network":   "grpc",
+			"grpc-opts": map[string]any{"grpc-service-name": "tr-svc"},
+		}
+		u2, err := url.Parse(NodeURI(grpc, "hk/TrojanGRPC"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u2.Query().Get("type") != "grpc" || u2.Query().Get("serviceName") != "tr-svc" {
+			t.Fatalf("unexpected trojan grpc query: %v", u2.Query())
+		}
+	})
+
+	t.Run("vmess ws and grpc", func(t *testing.T) {
+		raw := map[string]any{
+			"type":               "vmess",
+			"server":             "198.51.100.9",
+			"port":               443,
+			"uuid":               "11111111-2222-3333-4444-555555555555",
+			"alterId":            2,
+			"cipher":             "aes-128-gcm",
+			"network":            "ws",
+			"tls":                true,
+			"servername":         "sni.example.com",
+			"alpn":               []any{"http/1.1"},
+			"client-fingerprint": "chrome",
+			"skip-cert-verify":   true,
+			"ws-opts": map[string]any{
+				"path":    "/ray",
+				"headers": map[string]any{"Host": "cdn.example.com"},
+			},
+		}
+		uri := NodeURI(raw, "us/VMessWS")
+		if !strings.HasPrefix(uri, "vmess://") {
+			t.Fatalf("unexpected scheme: %s", uri)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(uri, "vmess://"))
+		if err != nil {
+			t.Fatalf("decode vmess: %v", err)
+		}
+		var vm map[string]any
+		if err := json.Unmarshal(decoded, &vm); err != nil {
+			t.Fatalf("json vmess: %v", err)
+		}
+		if vm["net"] != "ws" || vm["path"] != "/ray" || vm["host"] != "cdn.example.com" ||
+			vm["tls"] != "tls" || vm["sni"] != "sni.example.com" || vm["aid"] != float64(2) ||
+			vm["alpn"] != "http/1.1" || vm["fp"] != "chrome" || vm["allowInsecure"] != true {
+			t.Fatalf("unexpected vmess payload: %v", vm)
+		}
+
+		grpc := map[string]any{
+			"type":      "vmess",
+			"server":    "198.51.100.10",
+			"port":      443,
+			"uuid":      "11111111-2222-3333-4444-555555555555",
+			"network":   "grpc",
+			"tls":       true,
+			"grpc-opts": map[string]any{"grpc-service-name": "vm-svc"},
+		}
+		decoded2, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(NodeURI(grpc, "us/VMessGRPC"), "vmess://"))
+		var vm2 map[string]any
+		json.Unmarshal(decoded2, &vm2)
+		if vm2["net"] != "grpc" || vm2["path"] != "vm-svc" || vm2["type"] != "gun" {
+			t.Fatalf("unexpected vmess grpc payload: %v", vm2)
+		}
+	})
+
+	t.Run("ss plugins and ipv6", func(t *testing.T) {
+		obfs := map[string]any{
+			"type":     "ss",
+			"server":   "2001:db8::1",
+			"port":     8388,
+			"cipher":   "aes-256-gcm",
+			"password": "pw",
+			"plugin":   "obfs",
+			"plugin-opts": map[string]any{
+				"mode": "tls",
+				"host": "www.bing.com",
+			},
+		}
+		uri := NodeURI(obfs, "jp/SS-Obfs")
+		u, err := url.Parse(uri)
+		if err != nil {
+			t.Fatalf("invalid ss uri %q: %v", uri, err)
+		}
+		if u.Host != "[2001:db8::1]:8388" {
+			t.Fatalf("ipv6 host wrong: %q", u.Host)
+		}
+		if got := u.Query().Get("plugin"); got != "obfs-local;obfs=tls;obfs-host=www.bing.com" {
+			t.Fatalf("plugin = %q", got)
+		}
+
+		v2 := map[string]any{
+			"type":     "ss",
+			"server":   "203.0.113.8",
+			"port":     443,
+			"cipher":   "chacha20-ietf-poly1305",
+			"password": "pw2",
+			"plugin":   "v2ray-plugin",
+			"plugin-opts": map[string]any{
+				"mode": "websocket",
+				"tls":  true,
+				"host": "ws.example.com",
+				"path": "/ss",
+			},
+		}
+		u2, err := url.Parse(NodeURI(v2, "jp/SS-V2"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := u2.Query().Get("plugin"); got != "v2ray-plugin;mode=websocket;tls;host=ws.example.com;path=/ss" {
+			t.Fatalf("v2ray-plugin = %q", got)
+		}
+	})
 }
 
 func TestNodeKeyIsStableAndDistinct(t *testing.T) {

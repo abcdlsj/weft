@@ -3,11 +3,14 @@ package weft
 import (
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -184,79 +187,361 @@ func toJSON(v any) json.RawMessage {
 	return b
 }
 
-// NodeURI renders a mihomo proxy config as a share link for the base64 targets.
+// NodeURI renders a mihomo proxy config as a share link for the URI / Shadowrocket targets.
 func NodeURI(p map[string]any, displayName string) string {
 	typ, _ := p["type"].(string)
 	server, _ := p["server"].(string)
 	port := int(toFloat(p["port"]))
-	name := url.QueryEscape(displayName)
+	hostPort := net.JoinHostPort(server, strconv.Itoa(port))
+	name := url.PathEscape(displayName)
 	switch strings.ToLower(typ) {
 	case "ss", "shadowsocks":
 		method, _ := p["cipher"].(string)
 		pass, _ := p["password"].(string)
-		cred := base64Std(method + ":" + pass)
-		return fmt.Sprintf("ss://%s@%s:%d#%s", cred, server, port, name)
+		cred := base64.RawURLEncoding.EncodeToString([]byte(method + ":" + pass))
+		q := url.Values{}
+		if plugin := strOr(p["plugin"], ""); plugin != "" {
+			q.Set("plugin", ssPluginParam(plugin, p["plugin-opts"]))
+		}
+		if len(q) > 0 {
+			return fmt.Sprintf("ss://%s@%s?%s#%s", cred, hostPort, q.Encode(), name)
+		}
+		return fmt.Sprintf("ss://%s@%s#%s", cred, hostPort, name)
 	case "trojan":
 		pass, _ := p["password"].(string)
 		q := url.Values{}
-		if sni, ok := p["sni"].(string); ok && sni != "" {
+		if sni := strOr(p["sni"], strOr(p["servername"], "")); sni != "" {
 			q.Set("sni", sni)
 		}
-		if skip, ok := p["skip-cert-verify"].(bool); ok && skip {
+		if boolVal(p["skip-cert-verify"]) {
 			q.Set("allowInsecure", "1")
 		}
-		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", pass, server, port, q.Encode(), name)
+		if alpn := joinList(p["alpn"]); alpn != "" {
+			q.Set("alpn", alpn)
+		}
+		if fp := strOr(p["client-fingerprint"], strOr(p["fingerprint"], "")); fp != "" {
+			q.Set("fp", fp)
+		}
+		netType := strOr(p["network"], "")
+		if netType != "" && netType != "tcp" {
+			q.Set("type", netType)
+			applyTransportQuery(q, p, netType)
+		}
+		return buildQueryURI("trojan", pass, hostPort, q, name)
 	case "vmess":
-		path, host := transportHost(p)
+		netType := strOr(p["network"], "tcp")
+		path, host, svc := transportOpts(p, netType)
+		headerType := "none"
+		switch netType {
+		case "grpc":
+			path = svc
+			headerType = "gun"
+		case "http":
+			headerType = "http"
+		}
 		vm := map[string]any{
 			"v": "2", "ps": displayName, "add": server, "port": port,
-			"id": p["uuid"], "aid": numOr(p["alterId"], 0), "scy": strOr(p["cipher"], "auto"),
-			"net": strOr(p["network"], "tcp"), "type": "none", "host": host,
+			"id": p["uuid"], "aid": int(toFloat(p["alterId"])), "scy": strOr(p["cipher"], "auto"),
+			"net": netType, "type": headerType, "host": host,
 			"path": path, "tls": tlsValue(p), "sni": strOr(p["servername"], strOr(p["sni"], "")),
+		}
+		if alpn := joinList(p["alpn"]); alpn != "" {
+			vm["alpn"] = alpn
+		}
+		if fp := strOr(p["client-fingerprint"], strOr(p["fingerprint"], "")); fp != "" {
+			vm["fp"] = fp
+		}
+		if boolVal(p["skip-cert-verify"]) {
+			vm["allowInsecure"] = true
 		}
 		return "vmess://" + base64Std(string(toJSON(vm)))
 	case "vless":
-		path, host := transportHost(p)
+		netType := strOr(p["network"], "tcp")
 		q := url.Values{}
-		q.Set("encryption", "none")
-		q.Set("security", tlsValue(p))
-		q.Set("type", strOr(p["network"], "tcp"))
+		q.Set("encryption", strOr(p["encryption"], "none"))
+		q.Set("type", netType)
+		reality, _ := p["reality-opts"].(map[string]any)
+		pbk := strOr(reality["public-key"], "")
+		if pbk != "" {
+			q.Set("security", "reality")
+			q.Set("pbk", pbk)
+			if sid := strOr(reality["short-id"], ""); sid != "" {
+				q.Set("sid", sid)
+			}
+			if spx := strOr(reality["spider-x"], ""); spx != "" {
+				q.Set("spx", spx)
+			}
+			fp := strOr(p["client-fingerprint"], strOr(p["fingerprint"], "chrome"))
+			q.Set("fp", fp)
+		} else {
+			sec := tlsValue(p)
+			if sec == "" {
+				sec = "none"
+			}
+			q.Set("security", sec)
+			if fp := strOr(p["client-fingerprint"], strOr(p["fingerprint"], "")); fp != "" {
+				q.Set("fp", fp)
+			}
+			if boolVal(p["skip-cert-verify"]) {
+				q.Set("allowInsecure", "1")
+			}
+		}
 		if sni := strOr(p["servername"], strOr(p["sni"], "")); sni != "" {
 			q.Set("sni", sni)
 		}
-		if q.Get("type") == "ws" {
-			if path != "" {
-				q.Set("path", path)
-			}
-			if host != "" {
-				q.Set("host", host)
-			}
+		if alpn := joinList(p["alpn"]); alpn != "" {
+			q.Set("alpn", alpn)
 		}
+		applyTransportQuery(q, p, netType)
 		if flow := strOr(p["flow"], ""); flow != "" {
 			q.Set("flow", flow)
 		}
-		return fmt.Sprintf("vless://%v@%s:%d?%s#%s", p["uuid"], server, port, q.Encode(), name)
+		if pe := strOr(p["packet-encoding"], ""); pe != "" {
+			q.Set("packetEncoding", pe)
+		}
+		uuid, _ := p["uuid"].(string)
+		return buildQueryURI("vless", uuid, hostPort, q, name)
 	case "hysteria2", "hy2":
+		pass, _ := p["password"].(string)
 		q := url.Values{}
-		if sni, ok := p["sni"].(string); ok && sni != "" {
+		if sni := strOr(p["sni"], strOr(p["servername"], "")); sni != "" {
 			q.Set("sni", sni)
 		}
-		return fmt.Sprintf("hysteria2://%v@%s:%d?%s#%s", p["password"], server, port, q.Encode(), name)
+		if obfs := strOr(p["obfs"], ""); obfs != "" {
+			q.Set("obfs", obfs)
+		}
+		if obfsPass := strOr(p["obfs-password"], ""); obfsPass != "" {
+			q.Set("obfs-password", obfsPass)
+		}
+		if boolVal(p["skip-cert-verify"]) {
+			q.Set("insecure", "1")
+		}
+		if alpn := joinList(p["alpn"]); alpn != "" {
+			q.Set("alpn", alpn)
+		}
+		if pin := strOr(p["fingerprint"], ""); pin != "" {
+			q.Set("pinSHA256", pin)
+		}
+		if ports := strOr(p["ports"], ""); ports != "" {
+			q.Set("mport", ports)
+		}
+		if up := strOr(p["up"], ""); up != "" {
+			q.Set("up", up)
+		}
+		if down := strOr(p["down"], ""); down != "" {
+			q.Set("down", down)
+		}
+		return buildQueryURI("hysteria2", pass, hostPort, q, name)
 	}
 	return ""
 }
 
-// transportHost reads the ws-opts used by vmess/vless for its path and Host header.
-func transportHost(p map[string]any) (path, host string) {
-	opts, ok := p["ws-opts"].(map[string]any)
-	if !ok {
-		return "", ""
+func buildQueryURI(scheme, user, hostPort string, q url.Values, name string) string {
+	userinfo := url.User(user).String()
+	if len(q) > 0 {
+		return fmt.Sprintf("%s://%s@%s?%s#%s", scheme, userinfo, hostPort, q.Encode(), name)
 	}
-	path = strOr(opts["path"], "")
-	if headers, ok := opts["headers"].(map[string]any); ok {
-		host = strOr(headers["Host"], strOr(headers["host"], ""))
+	return fmt.Sprintf("%s://%s@%s#%s", scheme, userinfo, hostPort, name)
+}
+
+func applyTransportQuery(q url.Values, p map[string]any, netType string) {
+	path, host, svc := transportOpts(p, netType)
+	switch netType {
+	case "ws", "httpupgrade", "h2", "http":
+		if path != "" {
+			q.Set("path", path)
+		}
+		if host != "" {
+			q.Set("host", host)
+		}
+	case "grpc":
+		if svc != "" {
+			q.Set("serviceName", svc)
+		}
 	}
-	return path, host
+}
+
+// transportOpts reads ws-opts / grpc-opts / h2-opts / http-opts for share links.
+func transportOpts(p map[string]any, netType string) (path, host, serviceName string) {
+	switch netType {
+	case "ws", "httpupgrade":
+		opts, _ := p["ws-opts"].(map[string]any)
+		if opts == nil {
+			opts, _ = p["httpupgrade-opts"].(map[string]any)
+		}
+		if opts == nil {
+			return "", "", ""
+		}
+		path = strOr(opts["path"], "")
+		if headers, ok := opts["headers"].(map[string]any); ok {
+			host = strOr(headers["Host"], strOr(headers["host"], ""))
+		}
+		if host == "" {
+			host = strOr(opts["host"], "")
+		}
+		return path, host, ""
+	case "grpc":
+		if opts, ok := p["grpc-opts"].(map[string]any); ok {
+			serviceName = strOr(opts["grpc-service-name"], strOr(opts["service-name"], ""))
+		}
+		return "", "", serviceName
+	case "h2":
+		if opts, ok := p["h2-opts"].(map[string]any); ok {
+			path = strOr(opts["path"], "")
+			host = joinList(opts["host"])
+		}
+		return path, host, ""
+	case "http":
+		if opts, ok := p["http-opts"].(map[string]any); ok {
+			path = firstListItem(opts["path"])
+			if headers, ok := opts["headers"].(map[string]any); ok {
+				host = firstListItem(headers["Host"])
+				if host == "" {
+					host = firstListItem(headers["host"])
+				}
+			}
+		}
+		return path, host, ""
+	}
+	return "", "", ""
+}
+
+func ssPluginParam(plugin string, rawOpts any) string {
+	opts, _ := rawOpts.(map[string]any)
+	name := plugin
+	parts := make([]string, 0, len(opts)+1)
+	handled := map[string]bool{}
+	switch strings.ToLower(plugin) {
+	case "obfs", "simple-obfs", "obfs-local":
+		name = "obfs-local"
+		if mode := strOr(opts["mode"], ""); mode != "" {
+			parts = append(parts, "obfs="+escapePluginOpt(mode))
+			handled["mode"] = true
+		}
+		if host := strOr(opts["host"], ""); host != "" {
+			parts = append(parts, "obfs-host="+escapePluginOpt(host))
+			handled["host"] = true
+		}
+	case "v2ray-plugin":
+		name = "v2ray-plugin"
+		if mode := strOr(opts["mode"], ""); mode != "" {
+			parts = append(parts, "mode="+escapePluginOpt(mode))
+			handled["mode"] = true
+		}
+		if boolVal(opts["tls"]) {
+			parts = append(parts, "tls")
+		}
+		handled["tls"] = true
+		if host := strOr(opts["host"], ""); host != "" {
+			parts = append(parts, "host="+escapePluginOpt(host))
+			handled["host"] = true
+		}
+		if path := strOr(opts["path"], ""); path != "" {
+			parts = append(parts, "path="+escapePluginOpt(path))
+			handled["path"] = true
+		}
+		if boolVal(opts["mux"]) {
+			parts = append(parts, "mux")
+		}
+		handled["mux"] = true
+		if boolVal(opts["skip-cert-verify"]) {
+			parts = append(parts, "skip-cert-verify=1")
+		}
+		handled["skip-cert-verify"] = true
+	}
+	if len(opts) > 0 {
+		keys := make([]string, 0, len(opts))
+		for k := range opts {
+			if !handled[k] {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			switch v := opts[k].(type) {
+			case bool:
+				if v {
+					parts = append(parts, escapePluginOpt(k))
+				}
+			case string:
+				if v != "" {
+					parts = append(parts, escapePluginOpt(k)+"="+escapePluginOpt(v))
+				}
+			case float64, int, int64:
+				parts = append(parts, fmt.Sprintf("%s=%v", escapePluginOpt(k), v))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return name
+	}
+	return name + ";" + strings.Join(parts, ";")
+}
+
+func escapePluginOpt(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `;`, `\;`, `=`, `\=`).Replace(s)
+}
+
+func boolVal(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return truthy(b)
+	case float64:
+		return b != 0
+	case int:
+		return b != 0
+	}
+	return false
+}
+
+func joinList(v any) string {
+	switch list := v.(type) {
+	case string:
+		return strings.TrimSpace(list)
+	case []string:
+		out := make([]string, 0, len(list))
+		for _, s := range list {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+		return strings.Join(out, ",")
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			if s, ok := item.(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return strings.Join(out, ",")
+	}
+	return ""
+}
+
+func firstListItem(v any) string {
+	switch list := v.(type) {
+	case string:
+		return strings.TrimSpace(list)
+	case []string:
+		for _, s := range list {
+			if s = strings.TrimSpace(s); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, item := range list {
+			if s, ok := item.(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // tlsValue normalises mihomo's tls field (bool or string) for share links.
@@ -297,13 +582,6 @@ func toFloat(v any) float64 {
 func strOr(v any, def string) string {
 	if s, ok := v.(string); ok && s != "" {
 		return s
-	}
-	return def
-}
-
-func numOr(v any, def int) int {
-	if f, ok := v.(float64); ok {
-		return int(f)
 	}
 	return def
 }

@@ -307,8 +307,8 @@ func groupPlan(b Bundle, nodes []bundleNode, all []string) ([]any, []any) {
 	return entry, groups
 }
 
-// BuildLinks renders share links, one per line. result for target=text; the
-// base64 target wraps the same payload.
+// BuildLinks renders share links, one per line. Used by target=text; the
+// rocket (Shadowrocket/iOS) and base64 targets wrap the same payload.
 func BuildLinks(hosts []Host, nodes []Node) []string {
 	hostNames := map[string]string{}
 	for _, h := range hosts {

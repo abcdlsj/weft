@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type MouseEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ago, api, type Subscription } from '../api'
 import { Icon } from '../icons'
@@ -7,8 +7,30 @@ import type { PageProps } from '../App'
 
 const formatLabel: Record<string, string> = {
   mihomo: 'mihomo YAML',
+  rocket: 'Shadowrocket',
   base64: 'base64 链接',
   text: '明文链接',
+}
+
+type ClientTarget = 'mihomo' | 'rocket'
+
+function withTarget(rawUrl: string, target: ClientTarget) {
+  try {
+    const u = new URL(rawUrl)
+    u.searchParams.set('target', target)
+    return u.toString()
+  } catch {
+    const sep = rawUrl.includes('?') ? '&' : '?'
+    return `${rawUrl}${sep}target=${target}`
+  }
+}
+
+function selectCode(e: MouseEvent<HTMLElement>) {
+  const range = document.createRange()
+  range.selectNodeContents(e.currentTarget)
+  const sel = window.getSelection()
+  sel?.removeAllRanges()
+  sel?.addRange(range)
 }
 
 function clashLink(url: string) {
@@ -69,6 +91,7 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
   const [format, setFormat] = useState('mihomo')
   const [busy, setBusy] = useState(false)
   const [qr, setQr] = useState<Subscription | null>(null)
+  const [qrTarget, setQrTarget] = useState<ClientTarget>('mihomo')
   const [fresh, setFresh] = useState<{ label: string; url: string } | null>(null)
   const [authSub, setAuthSub] = useState<Subscription | null>(null)
   const [bearerDraft, setBearerDraft] = useState('')
@@ -86,8 +109,13 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
     }
   }, [search, state.bundles, navigate])
 
-  const url = (s: Subscription) =>
-    `${state.publicBase}/sub/${s.token}${s.accessKey ? `?key=${s.accessKey}` : ''}`
+  const url = (s: Subscription, target?: ClientTarget) => {
+    const params = new URLSearchParams()
+    if (target) params.set('target', target)
+    if (s.accessKey) params.set('key', s.accessKey)
+    const qs = params.toString()
+    return `${state.publicBase}/sub/${s.token}${qs ? `?${qs}` : ''}`
+  }
 
   async function create() {
     if (!bundleID) return
@@ -185,7 +213,8 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
         ) : (
           <ul className="sub-list">
             {state.subscriptions.map((s) => {
-              const link = url(s)
+              const clashUrl = url(s, 'mihomo')
+              const rocketUrl = url(s, 'rocket')
               return (
                 <li key={s.id} className="sub-card panel" data-off={!s.enabled}>
                   <div className="sub-card-top">
@@ -209,7 +238,10 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
                         className="quiet small icon-btn"
                         aria-label={t('二维码')}
                         title={t('二维码')}
-                        onClick={() => setQr(s)}
+                        onClick={() => {
+                          setQrTarget(s.format === 'rocket' || s.format === 'base64' ? 'rocket' : 'mihomo')
+                          setQr(s)
+                        }}
                       >
                         <Icon name="qr" size={15} />
                       </button>
@@ -221,20 +253,21 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
                     </div>
                   </div>
 
-                  <div className="sub-url">
-                    <code
-                      title={link}
-                      onClick={(e) => {
-                        const range = document.createRange()
-                        range.selectNodeContents(e.currentTarget)
-                        const sel = window.getSelection()
-                        sel?.removeAllRanges()
-                        sel?.addRange(range)
-                      }}
-                    >
-                      {link}
-                    </code>
-                    <Copy value={link} label={t('复制链接')} />
+                  <div className="sub-urls">
+                    <div className="sub-url">
+                      <span className="sub-url-tag">Clash / mihomo</span>
+                      <code title={clashUrl} onClick={selectCode}>
+                        {clashUrl}
+                      </code>
+                      <Copy value={clashUrl} label={t('复制 Clash')} />
+                    </div>
+                    <div className="sub-url">
+                      <span className="sub-url-tag">Shadowrocket</span>
+                      <code title={rocketUrl} onClick={selectCode}>
+                        {rocketUrl}
+                      </code>
+                      <Copy value={rocketUrl} label={t('复制 Shadowrocket')} />
+                    </div>
                   </div>
 
                   <div className="sub-info-row">
@@ -276,6 +309,7 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
                       onChange={(e) => void patch(s, { format: e.target.value })}
                     >
                       <option value="mihomo">mihomo</option>
+                      <option value="rocket">Shadowrocket</option>
                       <option value="base64">base64</option>
                       <option value="text">{t('明文')}</option>
                     </select>
@@ -327,24 +361,30 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
             <Icon name="link" size={15} />
             <span>{t('客户端怎么填')}</span>
           </span>
-          <span className="disclosure-meta small muted">{t('三种输出格式的区别')}</span>
+          <span className="disclosure-meta small muted">{t('两种客户端家族的区别')}</span>
           <Icon name="chevronDown" size={15} className="disclosure-chevron" />
         </summary>
         <div className="disclosure-body">
           <ul className="facts">
             <li>
-              <span>mihomo YAML</span>
-              <span>{t('整份配置，直接作为 profile 地址。')}</span>
-            </li>
-            <li>
-              <span>{t('base64 链接')}</span>
-              <span>{t('节点列表，给只吃节点的客户端。')}</span>
-            </li>
-            <li>
-              <span>{t('明文链接')}</span>
+              <span>Clash / mihomo</span>
               <span>
-                {t('一行一个')} <code className="mono">ss://</code> {t('或')} <code className="mono">vmess://</code>
-                {t('，便于脚本处理。')}
+                {t('默认 YAML 完整配置（含策略组与规则），用')} <code className="mono">?target=mihomo</code>
+                {t('，直接作为 profile 地址。')}
+              </span>
+            </li>
+            <li>
+              <span>Shadowrocket / iOS</span>
+              <span>
+                {t('base64 分享链接列表，用')} <code className="mono">?target=rocket</code>
+                {t('，带齐 Reality、Hysteria2 混淆等参数。')}
+              </span>
+            </li>
+            <li>
+              <span>{t('兼容参数')}</span>
+              <span>
+                <code className="mono">?target=base64</code> {t('与')} <code className="mono">?target=text</code>
+                {t('（一行一条明文链接）保持兼容，便于脚本处理。')}
               </span>
             </li>
           </ul>
@@ -398,10 +438,14 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
           wide
         >
           <p className="small muted">{t('链接里已经包含访问凭据；不要把它发到公开的地方。')}</p>
-          <ClientLink label="Clash Verge / mihomo" value={clashLink(url(sharing))} />
-          <ClientLink label="Shadowrocket" value={shadowrocketLink(url(sharing), sharing.label || t('未命名'))} />
-          <ClientLink label="sing-box" value={singboxLink(url(sharing), sharing.label || t('未命名'))} />
-          <ClientLink label={t('订阅地址')} value={url(sharing)} openable={false} />
+          <ClientLink label="Clash Verge / mihomo" value={clashLink(url(sharing, 'mihomo'))} />
+          <ClientLink
+            label="Shadowrocket"
+            value={shadowrocketLink(url(sharing, 'rocket'), sharing.label || t('未命名'))}
+          />
+          <ClientLink label="sing-box" value={singboxLink(url(sharing, 'mihomo'), sharing.label || t('未命名'))} />
+          <ClientLink label={t('Clash / mihomo 订阅地址')} value={url(sharing, 'mihomo')} openable={false} />
+          <ClientLink label={t('Shadowrocket 订阅地址')} value={url(sharing, 'rocket')} openable={false} />
         </Modal>
       )}
 
@@ -482,9 +526,10 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
             <span className="hint">{t('方便区分设备或客户端，可以不填。')}</span>
           </label>
           <label className="field">
-            <span>{t('输出格式')}</span>
+            <span>{t('默认格式')}</span>
             <select value={format} onChange={(e) => setFormat(e.target.value)}>
-              <option value="mihomo">{t('mihomo YAML（完整配置）')}</option>
+              <option value="mihomo">{t('mihomo YAML（Clash 系完整配置）')}</option>
+              <option value="rocket">{t('Shadowrocket（iOS 分享链接）')}</option>
               <option value="base64">{t('base64 链接列表')}</option>
               <option value="text">{t('明文链接列表')}</option>
             </select>
@@ -503,21 +548,32 @@ export function Subscriptions({ state, refresh, navigate, search }: PageProps) {
             </button>
           }
         >
-          <p>{t('把它粘进 mihomo、Clash Verge 或 sing-box 的订阅地址里。')}</p>
-          <pre>
-            <code>{fresh.url}</code>
-          </pre>
-          <Copy value={fresh.url} label={t('复制链接')} />
+          <p>{t('同一条订阅同时提供 Clash 系与 Shadowrocket 系地址，按客户端选用即可。')}</p>
+          <ClientLink label="Clash / mihomo" value={withTarget(fresh.url, 'mihomo')} openable={false} />
+          <ClientLink label="Shadowrocket" value={withTarget(fresh.url, 'rocket')} openable={false} />
         </Modal>
       )}
 
       {qr && (
         <Modal title={t('{{name}} · 二维码', { name: qr.label || t('未命名') })} onClose={() => setQr(null)}>
           <div className="qr">
-            <img src={`/api/subscriptions/${qr.id}/qr.png?size=360`} alt={t('订阅二维码')} width={264} height={264} />
-            <code className="mono">{url(qr)}</code>
+            <div className="tabs qr-tabs" role="group" aria-label={t('输出格式')}>
+              <button type="button" aria-pressed={qrTarget === 'mihomo'} onClick={() => setQrTarget('mihomo')}>
+                Clash / mihomo
+              </button>
+              <button type="button" aria-pressed={qrTarget === 'rocket'} onClick={() => setQrTarget('rocket')}>
+                Shadowrocket
+              </button>
+            </div>
+            <img
+              src={`/api/subscriptions/${qr.id}/qr.png?size=360&target=${qrTarget}`}
+              alt={t('订阅二维码')}
+              width={264}
+              height={264}
+            />
+            <code className="mono">{url(qr, qrTarget)}</code>
             <div className="qr-actions">
-              <Copy value={url(qr)} label={t('复制链接')} />
+              <Copy value={url(qr, qrTarget)} label={t('复制链接')} />
             </div>
           </div>
         </Modal>

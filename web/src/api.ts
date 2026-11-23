@@ -92,7 +92,7 @@ export interface Subscription {
   token: string
   accessKey: string
   bearer: string
-  format: 'mihomo' | 'base64' | 'text'
+  format: 'mihomo' | 'rocket' | 'base64' | 'text'
   enabled: boolean
   hits: number
   lastUsedAt: number
@@ -238,9 +238,9 @@ export const api = {
   updateBundle: (id: string, body: BundlePayload) =>
     req<Bundle>(`/api/bundles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteBundle: (id: string) => req<{ ok: boolean }>(`/api/bundles/${id}`, { method: 'DELETE' }),
-  preview: (id: string, target: 'mihomo' | 'text' | 'base64') =>
+  preview: (id: string, target: 'mihomo' | 'rocket' | 'text' | 'base64') =>
     req<{ body: string; nodes: number }>(`/api/bundles/${id}/preview?target=${target}`),
-  previewDraft: (body: BundlePayload, target: 'mihomo' | 'text' | 'base64') =>
+  previewDraft: (body: BundlePayload, target: 'mihomo' | 'rocket' | 'text' | 'base64') =>
     req<{ body: string; nodes: number }>(`/api/bundles/preview?target=${target}`, {
       method: 'POST',
       body: JSON.stringify(body),

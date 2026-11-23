@@ -1044,10 +1044,10 @@ func (s *Server) handlePreviewDraft(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) writePreview(w http.ResponseWriter, r *http.Request, b *Bundle, hosts []Host, nodes []Node) {
 	target := r.URL.Query().Get("target")
-	if target == "text" || target == "base64" {
+	if target == "text" || target == "base64" || target == "rocket" {
 		links := BuildLinks(hosts, nodes)
 		payload := strings.Join(links, "\n")
-		if target == "base64" {
+		if target == "base64" || target == "rocket" {
 			payload = base64Std(payload)
 		}
 		writeJSON(w, 200, map[string]any{"body": payload, "nodes": len(links)})
@@ -1095,6 +1095,12 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	if body.Format == "" {
 		body.Format = "mihomo"
 	}
+	switch body.Format {
+	case "mihomo", "rocket", "base64", "text":
+	default:
+		writeErr(w, 400, "未知格式")
+		return
+	}
 	sub, err := s.store.CreateSubscription(body.BundleID, body.Label, body.Format)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -1118,7 +1124,7 @@ func (s *Server) handlePatchSubscription(w http.ResponseWriter, r *http.Request)
 	}
 	if body.Format != nil {
 		switch *body.Format {
-		case "mihomo", "base64", "text":
+		case "mihomo", "rocket", "base64", "text":
 		default:
 			writeErr(w, 400, "未知格式")
 			return
@@ -1182,6 +1188,14 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 		size = v
 	}
 	link := s.subURL(r, &Subscription{Token: token, AccessKey: accessKey})
+	switch target := r.URL.Query().Get("target"); target {
+	case "mihomo", "rocket", "base64", "text":
+		sep := "?"
+		if strings.Contains(link, "?") {
+			sep = "&"
+		}
+		link += sep + "target=" + target
+	}
 	png, err := qrcode.Encode(link, qrcode.Medium, size)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -1271,14 +1285,14 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=%d; expire=0", subscriptionTrafficTotal))
 	extension := ".yaml"
 	switch target {
-	case "base64", "text":
+	case "rocket", "base64", "text":
 		extension = ".txt"
 	default:
 		extension = ".yaml"
 	}
 	w.Header().Set("Content-Disposition", contentDisposition(title+extension))
 	switch target {
-	case "base64":
+	case "rocket", "base64":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, base64Std(strings.Join(BuildLinks(hosts, nodes), "\n")))
 	case "text":

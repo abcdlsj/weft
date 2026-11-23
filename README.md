@@ -11,7 +11,7 @@ Weft gathers proxy nodes from many machines — mihomo hosts, hy2/xray-only boxe
 - **Any host, no inbound ports** — a small agent reads local mihomo / hysteria2 / xray and reports outbound; works behind NAT.
 - **Configs become nodes** — passwords, obfs, SNI and Reality keys are reconstructed from the server config; rotate on the box and the subscription follows.
 - **Airport subscriptions** — Clash YAML, base64 and plain links; ad nodes and banners are dropped, names cleaned, and region kept for grouping.
-- **One URL per bundle** — pick nodes across hosts, choose grouping and a rule profile, publish `/sub/<token>` as mihomo YAML, base64 or plain links. Revocable, with per-device access stats.
+- **One URL per bundle** — pick nodes across hosts, choose grouping and a rule profile, publish `/sub/<token>` for both client families: Clash / mihomo YAML (`?target=mihomo`, default) and Shadowrocket / iOS base64 share links (`?target=rocket`, plus `base64`/`text`). Revocable, with per-device access stats.
 - **Rule profiles** — edit rules, rule-providers and proxy groups once, import gfwlist or rule sources, refresh with a diff, apply to any bundle.
 - **Quiet panel** — water.css with Avenir Next, light and dark, mobile-first PWA, English and Chinese. Argon2id, CSRF, rate limits and security headers.
 
